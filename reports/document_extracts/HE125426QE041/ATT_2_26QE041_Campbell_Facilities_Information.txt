@@ -1,0 +1,24 @@
+--- Page 1 ---
+
+FACNO FACILITY NAME DESCRIPTION / PURPOSE FOOTPRINT SITE AREA UM YR BLT
+177 Barkley ES School (Elementary School) Barkley 141,139 SF 2017
+7409 Barsanti ES School (Elementary School) Barsanti 89,179 SF 2011
+912 FCHS School (High School) FCHS 184,232 SF 2017
+911 FCHS Soccer Field House Athletic, Field House Ball Fields 2,499 SF 2017
+905 FCHS Baseball Field House Athletic, Field House, Concessions Ball Fields 1,206 SF 1986
+905 RSF FCHS Softball Field House Athletic, Field House Ball Fields 365 SF 2015
+903 FCHS Shed 1 Shed, Warehouse, Athletics/JROTC Ball Fields 951 SF 1982
+904 FCHS Shed 2 Shed, Warehouse, Athletics/JROTC Ball Fields 1,136 SF 1987
+902 FCMS School (Middle School) FCMS 168,000 SF 2025
+2115 Lucas ES School (Elementary School) Lucas 86,603 SF 1997
+70 Marshall ES School (Elementary School) Marshall 119,705 SF 2016
+78 CSO IT Building IT, Administration CSO 3,623 SF 2012
+84 CSO Admin Office Administration CSO 9,442 SF 1961
+85 CSO Shed Shed, Warehouse CSO 1,224 SF 1992
+86 CSO Custodial Building Shed, Warehouse, Administration CSO 4,811 SF 1986
+1109 Maintenance: Freezer and Cooler Cold Storage Maintenance 912 SF 2022
+1110 Maintenance: Facilities and Logistics Facilities, Logistics, Administration, Warehouse Maintenance 8,225 SF 1992
+1112 Maintenance: Grounds Grounds Maintenance Maintenance 5,368 SF 2010
+5440 Bus Barn Vehicle Maintenance Bus Barn 4,921 SF 1990
+* Square footage information has been consolidated from Army and DoDEA Real Property records.
+* Facility Utilzation Drawings (FUS) may show slightly different figures due to varying calculation methods.
