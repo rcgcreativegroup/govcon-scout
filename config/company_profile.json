@@ -1,0 +1,220 @@
+{
+  "company_name": "JPTR Enterprises LLC",
+  "dba": "Robinson Creative Group",
+  "brand_name": "Robinson Creative Group",
+  "short_name": "JPTR / RCG",
+  "uei": "QJZTCE6MKBG5",
+  "cage": "Pending Assignment",
+  "sam_status": "Registered — Active",
+  "location": "Southaven, MS",
+  "work_area": "Nationwide",
+  "entity_type": "LLC — Small Business",
+  "ownership": [
+    "Veteran-Owned",
+    "Minority-Owned",
+    "Small Business"
+  ],
+  "primary_naics": "541613",
+  "naics_codes": [
+    "541613",
+    "541810",
+    "541820",
+    "561920",
+    "611430",
+    "541512",
+    "541430",
+    "512110",
+    "484110",
+    "484121",
+    "484122",
+    "484220",
+    "484230",
+    "561720",
+    "561710",
+    "423850",
+    "424120",
+    "424130",
+    "424990",
+    "423990"
+  ],
+  "service_lanes": {
+    "marketing_communications_ai": {
+      "formal_entity": "JPTR Enterprises LLC DBA Robinson Creative Group",
+      "brand_to_use": "Robinson Creative Group",
+      "description": "Marketing, communications, public affairs, AI workflow automation, training, event production, and technical documentation services.",
+      "naics": [
+        "541613",
+        "541810",
+        "541820",
+        "561920",
+        "611430",
+        "541512",
+        "541430",
+        "512110"
+      ]
+    },
+    "trucking_transportation": {
+      "formal_entity": "JPTR Enterprises LLC",
+      "brand_to_use": "JPTR Enterprises LLC",
+      "description": "General freight trucking, local and regional transportation, hauling, delivery support, and logistics-related services.",
+      "naics": [
+        "484110",
+        "484121",
+        "484122",
+        "484220",
+        "484230"
+      ]
+    },
+    "janitorial_facility_support": {
+      "formal_entity": "JPTR Enterprises LLC",
+      "brand_to_use": "JPTR Enterprises LLC",
+      "description": "Janitorial, commercial cleaning, custodial support, sanitation, and facility maintenance support services.",
+      "naics": [
+        "561720"
+      ]
+    },
+    "pest_control": {
+      "formal_entity": "JPTR Enterprises LLC",
+      "brand_to_use": "JPTR Enterprises LLC",
+      "description": "Pest control, extermination, prevention, inspection, and facility pest management support services.",
+      "naics": [
+        "561710"
+      ]
+    },
+    "facility_supplies_distribution": {
+      "formal_entity": "JPTR Enterprises LLC",
+      "brand_to_use": "JPTR Enterprises LLC",
+      "description": "Facility supplies, janitorial consumables, hygiene products, paper goods, trash bags, cleaning supplies, office supplies, and general government supply distribution.",
+      "naics": [
+        "423850",
+        "424120",
+        "424130",
+        "424990",
+        "423990"
+      ]
+    }
+  },
+  "core_strengths": [
+    "Strategic marketing",
+    "Multi-platform campaign management",
+    "Public affairs",
+    "Government communications",
+    "Brand identity",
+    "Creative development",
+    "Media planning",
+    "Social media strategy",
+    "Content management",
+    "Military recruiting",
+    "Recruiting and retention marketing",
+    "Speaker coordination",
+    "Talent coordination",
+    "Live event production",
+    "Event logistics",
+    "AI-powered content creation",
+    "Campaign optimization",
+    "Prompt engineering",
+    "Workflow automation",
+    "AI brand strategy",
+    "Identity architecture",
+    "SAP enterprise technical documentation",
+    "Training program development",
+    "Instructional design",
+    "Digital asset management",
+    "Video production",
+    "General freight trucking",
+    "Local freight transportation",
+    "Regional freight transportation",
+    "Hauling services",
+    "Delivery support",
+    "Logistics support",
+    "Janitorial services",
+    "Commercial cleaning",
+    "Custodial services",
+    "Facility cleaning",
+    "Sanitation services",
+    "Office cleaning",
+    "Building cleaning",
+    "Floor care",
+    "Restroom sanitation",
+    "Trash removal",
+    "Disinfection services",
+    "Pest control",
+    "Exterminating services",
+    "Pest management",
+    "Facility pest control",
+    "Insect control",
+    "Rodent control",
+    "Pest inspection",
+    "Preventive pest treatment",
+    "Integrated pest management",
+    "Facility supplies",
+    "Janitorial supplies",
+    "Cleaning supplies",
+    "Paper goods",
+    "Toilet paper",
+    "Paper towels",
+    "Trash bags",
+    "Hygiene products",
+    "Soap",
+    "Toothpaste",
+    "Disposable gloves",
+    "Office supplies",
+    "Consumables distribution",
+    "Government supply sourcing"
+  ],
+  "past_performance": [
+    {
+      "organization": "iHeartMedia",
+      "role": "Marketing Operations Manager",
+      "summary": "Multi-market campaign operations at one of the nation’s largest media and live event companies.",
+      "lane": "marketing_communications_ai"
+    },
+    {
+      "organization": "Bellmark Records",
+      "role": "VP Sales & Marketing",
+      "summary": "Multi-market marketing strategy and promotional execution for a nationally distributed record label.",
+      "lane": "marketing_communications_ai"
+    },
+    {
+      "organization": "Tuccini Fragrance",
+      "role": "VP of Marketing",
+      "summary": "Executive brand strategy and distribution channel marketing for New York-based fragrance company.",
+      "lane": "marketing_communications_ai"
+    },
+    {
+      "organization": "Stephen Pierce International Events",
+      "role": "Marketing / Event Campaign Support",
+      "summary": "Global speaking events and marketing campaigns across Malaysia, Australia, Singapore, and Asia-Pacific markets.",
+      "lane": "marketing_communications_ai"
+    },
+    {
+      "organization": "RWD Technologies",
+      "role": "Technical Engineer",
+      "summary": "SAP enterprise technical documentation for Ford Motor Company and major financial institutions.",
+      "lane": "marketing_communications_ai"
+    },
+    {
+      "organization": "Southwestern Bell",
+      "role": "Fraud Department",
+      "summary": "Telecommunications fraud investigation, analytical review, and regulatory compliance in a large-scale enterprise environment.",
+      "lane": "enterprise_operations"
+    }
+  ],
+  "strategic_partners": [
+    {
+      "name": "HBCU Connect",
+      "role": "Platform Subcontractor",
+      "summary": "Nation’s leading HBCU digital network with 1.5M registered members, 900+ HBCU alumni chapters, and 15 institutional partners.",
+      "lane": "marketing_communications_ai"
+    }
+  ],
+  "positioning_notes": [
+    "Use JPTR Enterprises LLC as the formal legal entity name for government contracting.",
+    "Use Robinson Creative Group branding for marketing, communications, AI, creative, training, public affairs, event, and media opportunities.",
+    "Use JPTR Enterprises LLC branding for trucking, janitorial, pest control, facility support, logistics, supplies, and general service opportunities.",
+    "Do not use the tagline 'Products are Copyable. People Are Not.' for trucking, janitorial, pest control, facility support, logistics, supplies, or other non-marketing capability statements.",
+    "For non-marketing opportunities, keep positioning operational, reliable, compliant, and service-focused.",
+    "For supply opportunities, emphasize sourcing, fulfillment, responsiveness, facility support, consumables, and government-ready vendor reliability.",
+    "For marketing and AI opportunities, emphasize strategy, creativity, campaign execution, public communications, workflow automation, and identity-driven differentiation."
+  ]
+}

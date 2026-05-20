@@ -1,0 +1,202 @@
+{
+  "marketing_communications": {
+    "description": "Marketing, advertising, public relations, outreach, recruiting, communications, media, campaign, and public affairs opportunities.",
+    "keywords": [
+      "marketing",
+      "communications",
+      "public affairs",
+      "outreach",
+      "advertising",
+      "campaign",
+      "social media",
+      "media relations",
+      "public relations",
+      "strategic communications",
+      "community outreach",
+      "recruiting",
+      "retention marketing",
+      "brand strategy",
+      "creative services"
+    ],
+    "naics": [
+      "541613",
+      "541810",
+      "541820"
+    ]
+  },
+  "ai_automation": {
+    "description": "AI, workflow automation, prompt engineering, content generation, business process automation, and digital transformation opportunities.",
+    "keywords": [
+      "artificial intelligence",
+      "AI",
+      "automation",
+      "workflow automation",
+      "business process automation",
+      "prompt engineering",
+      "content generation",
+      "digital transformation",
+      "machine learning",
+      "process improvement",
+      "data automation"
+    ],
+    "naics": [
+      "541512",
+      "541613"
+    ]
+  },
+  "training_documentation": {
+    "description": "Training, curriculum, instructional design, professional development, course development, and technical documentation opportunities.",
+    "keywords": [
+      "training",
+      "instructional design",
+      "curriculum",
+      "technical documentation",
+      "course development",
+      "learning development",
+      "professional development",
+      "training materials",
+      "training support",
+      "documentation",
+      "manuals",
+      "standard operating procedures",
+      "SOP"
+    ],
+    "naics": [
+      "611430",
+      "541430",
+      "541512"
+    ]
+  },
+  "events_video": {
+    "description": "Event production, conference support, live event logistics, video production, AV, media production, and speaker coordination opportunities.",
+    "keywords": [
+      "event management",
+      "conference",
+      "live event",
+      "video production",
+      "media production",
+      "audio visual",
+      "AV support",
+      "event planning",
+      "event logistics",
+      "speaker coordination",
+      "meeting support",
+      "conference support"
+    ],
+    "naics": [
+      "561920",
+      "512110"
+    ]
+  },
+  "trucking_transportation": {
+    "description": "General freight, trucking, hauling, delivery, transportation, local freight, regional freight, and logistics support opportunities.",
+    "keywords": [
+      "trucking",
+      "transportation",
+      "freight",
+      "general freight",
+      "hauling",
+      "delivery",
+      "local delivery",
+      "regional delivery",
+      "cargo",
+      "logistics",
+      "route delivery",
+      "transport services",
+      "moving services",
+      "shipment",
+      "courier"
+    ],
+    "naics": [
+      "484110",
+      "484121",
+      "484122",
+      "484220",
+      "484230"
+    ]
+  },
+  "janitorial_facility_support": {
+    "description": "Janitorial, commercial cleaning, custodial, sanitation, building cleaning, disinfection, floor care, and facility support opportunities.",
+    "keywords": [
+      "janitorial",
+      "custodial",
+      "cleaning",
+      "commercial cleaning",
+      "building cleaning",
+      "facility cleaning",
+      "sanitation",
+      "disinfection",
+      "restroom sanitation",
+      "trash removal",
+      "floor care",
+      "floor maintenance",
+      "housekeeping",
+      "facility support",
+      "custodial services"
+    ],
+    "naics": [
+      "561720"
+    ]
+  },
+  "pest_control": {
+    "description": "Pest control, extermination, integrated pest management, rodent control, insect control, and facility pest prevention opportunities.",
+    "keywords": [
+      "pest control",
+      "pest management",
+      "extermination",
+      "exterminating",
+      "rodent control",
+      "insect control",
+      "termite",
+      "mosquito",
+      "integrated pest management",
+      "IPM",
+      "pest inspection",
+      "pest prevention",
+      "commercial pest"
+    ],
+    "naics": [
+      "561710"
+    ]
+  },
+  "facility_supplies_distribution": {
+    "description": "Facility supplies, janitorial supplies, paper goods, trash bags, hygiene products, cleaning supplies, office supplies, PPE, and government consumables.",
+    "keywords": [
+      "facility supplies",
+      "janitorial supplies",
+      "cleaning supplies",
+      "paper goods",
+      "paper towels",
+      "toilet paper",
+      "trash bags",
+      "garbage bags",
+      "can liners",
+      "hygiene products",
+      "toothpaste",
+      "soap",
+      "hand soap",
+      "disposable gloves",
+      "PPE",
+      "office supplies",
+      "consumables",
+      "sanitation supplies",
+      "cleaning chemicals",
+      "detergent",
+      "disinfectant",
+      "mops",
+      "brooms",
+      "towels",
+      "uniforms",
+      "clothing",
+      "correctional supplies",
+      "facility consumables"
+    ],
+    "naics": [
+      "423850",
+      "424120",
+      "424130",
+      "424990",
+      "423990"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+auth.json
+.browser/
+debug/
+cache/
+__pycache__/
+*.pyc
+downloads/_debug/
+sam-session-test.png
+
+# Secrets / local sessions
+.env
+.env.*
+auth.json
+.browser/
+
+# Python / caches / debug
+__pycache__/
+*.pyc
+cache/
+debug/
+downloads/_debug/
+sam-session-test.png
+
+# Node dependencies
+node_modules/
+
+# Optional noisy generated timestamp files
+reports/*_2026-05-20_*.md
