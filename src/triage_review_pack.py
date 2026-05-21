@@ -49,6 +49,8 @@ def artifact_path(notice_id, artifact):
         "sources_sought": Path("reports/sources_sought") / f"{notice_id}_sources_sought_plan.md",
         "manual_review": Path("reports/manual_review") / f"{notice_id}_manual_review.md",
         "analysis_packet": Path("reports/analysis_packets") / f"{notice_id}.md",
+        "usaspending_intel": Path("reports/market_intel") / f"{notice_id}_usaspending_intel.md",
+        "bid_price_sanity_check": Path("reports/pricing") / f"{notice_id}_bid_price_sanity_check.md",
     }
     return paths[artifact]
 
@@ -64,6 +66,8 @@ def existing_artifacts(notice_id):
         "sources_sought",
         "manual_review",
         "analysis_packet",
+        "usaspending_intel",
+        "bid_price_sanity_check",
     ]:
         path = artifact_path(notice_id, key)
         if path.exists():
@@ -280,6 +284,7 @@ def attach_artifacts(item):
     item["decision_summary"] = decision_summary(item["notice_id"])
     item["sources_strategy"] = sources_strategy(item["notice_id"])
     item["manual_reason"] = manual_reason(item["notice_id"])
+    item["intel"] = intel_status(item["notice_id"], item["artifacts"])
     return item
 
 
@@ -330,12 +335,80 @@ def artifact_links(item):
         ("bid_no_bid", "bid/no-bid"),
         ("pricing", "pricing"),
         ("pricing_csv", "pricing csv"),
+        ("usaspending_intel", "usa-spending"),
+        ("bid_price_sanity_check", "sanity check"),
         ("sources_sought", "sources sought"),
         ("manual_review", "manual review"),
         ("analysis_packet", "analysis packet"),
     ]
     links = [markdown_link(artifacts[key], label) for key, label in labels if key in artifacts]
     return ", ".join(links) if links else "Manual review needed - insufficient structured data."
+
+
+QUALITY_WARNING_PHRASES = [
+    "DATA QUALITY WARNING",
+    "NOT RELIABLE",
+    "unrelated contracts",
+    "award range unreliable",
+    "figures below should not be used",
+]
+
+
+def detect_usaspending_data_quality(notice_id):
+    """Scan intel and sanity check reports for data quality warning phrases.
+
+    Returns 'warning', 'clean', or 'no_data'.
+    """
+    intel_text = read_text(artifact_path(notice_id, "usaspending_intel"))
+    check_text = read_text(artifact_path(notice_id, "bid_price_sanity_check"))
+    combined = (intel_text + check_text).upper()
+
+    if not intel_text and not check_text:
+        return "no_data"
+
+    for phrase in QUALITY_WARNING_PHRASES:
+        if phrase.upper() in combined:
+            return "warning"
+
+    return "clean"
+
+
+def intel_status(notice_id, artifacts):
+    pricing_exists = "pricing" in artifacts
+    pricing_csv_exists = "pricing_csv" in artifacts
+    usaspending_exists = "usaspending_intel" in artifacts
+    sanity_check_exists = "bid_price_sanity_check" in artifacts
+    dq_status = detect_usaspending_data_quality(notice_id)
+
+    has_core = all(key in artifacts for key in ["bid_no_bid", "decision", "compliance"])
+    sources_exists = "sources_sought" in artifacts
+    manual_exists = "manual_review" in artifacts
+
+    if has_core and (pricing_exists or pricing_csv_exists) and usaspending_exists and sanity_check_exists and dq_status == "clean":
+        action = "Ready for Subcontractor Quotes / Pricing Review"
+    elif has_core and usaspending_exists and dq_status == "warning":
+        action = "Needs Better Market Data"
+    elif has_core and (pricing_exists or pricing_csv_exists) and not usaspending_exists:
+        action = "Run USAspending Intel"
+    elif has_core and not pricing_exists and not pricing_csv_exists:
+        action = "Extract / Review Pricing Schedule"
+    elif sources_exists:
+        action = "Response Strategy Review"
+    elif manual_exists:
+        action = "Manual Trace / Downloader Review"
+    elif has_core:
+        action = "Run USAspending Intel"
+    else:
+        action = "Needs Processing"
+
+    return {
+        "pricing_schedule_exists": pricing_exists,
+        "pricing_table_exists": pricing_csv_exists,
+        "usaspending_intel_exists": usaspending_exists,
+        "bid_price_sanity_check_exists": sanity_check_exists,
+        "usaspending_data_quality_status": dq_status,
+        "recommended_next_action": action,
+    }
 
 
 def item_note(item):
@@ -346,6 +419,62 @@ def item_note(item):
     if item.get("manual_reason"):
         return item["manual_reason"]
     return item.get("action") or "Manual review needed - insufficient structured data."
+
+
+def is_ready_for_pricing(item):
+    return item.get("intel", {}).get("recommended_next_action") == "Ready for Subcontractor Quotes / Pricing Review"
+
+
+def needs_better_data(item):
+    return item.get("intel", {}).get("recommended_next_action") == "Needs Better Market Data"
+
+
+def has_any_intel(item):
+    intel = item.get("intel", {})
+    return any([
+        intel.get("pricing_schedule_exists"),
+        intel.get("pricing_table_exists"),
+        intel.get("usaspending_intel_exists"),
+        intel.get("bid_price_sanity_check_exists"),
+    ])
+
+
+def checkmark(val):
+    return "Yes" if val else "—"
+
+
+def dq_label(status):
+    if status == "clean":
+        return "Clean"
+    if status == "warning":
+        return "WARNING"
+    return "No data"
+
+
+def finalist_intel_table(items):
+    relevant = [item for item in items if has_core_processed_artifacts(item) or has_any_intel(item)]
+    relevant = sorted(relevant, key=candidate_score, reverse=True)
+
+    if not relevant:
+        return "No processed or intel-enriched items found."
+
+    lines = [
+        "| Notice | Pricing | Pricing CSV | USAspending | Sanity Check | Data Quality | Next Action |",
+        "|---|:---:|:---:|:---:|:---:|---|---|",
+    ]
+    for item in relevant:
+        intel = item.get("intel", {})
+        notice = f"{item['notice_id']} — {item['title']}".replace("|", "\\|")
+        lines.append(
+            f"| {notice} "
+            f"| {checkmark(intel.get('pricing_schedule_exists'))} "
+            f"| {checkmark(intel.get('pricing_table_exists'))} "
+            f"| {checkmark(intel.get('usaspending_intel_exists'))} "
+            f"| {checkmark(intel.get('bid_price_sanity_check_exists'))} "
+            f"| {dq_label(intel.get('usaspending_data_quality_status', 'no_data'))} "
+            f"| {intel.get('recommended_next_action', '—')} |"
+        )
+    return "\n".join(lines)
 
 
 def item_table(items):
@@ -421,13 +550,32 @@ def newest_batch_report():
 
 def build_review_pack(items, triage_board):
     counts = count_by_status(items)
-    pursue_now = [item for item in items if item.get("pursue_now")]
     processed = [item for item in items if has_core_processed_artifacts(item)]
     sources = [item for item in items if item["status"] == "Sources Sought Plan Generated"]
     manual = [item for item in items if item["status"].startswith("Manual Review")]
     retry = [item for item in manual if is_retry_candidate(item)]
     pass_items = [item for item in items if is_pass_not_ready(item)]
     usaspending_queue = build_usaspending_queue(items)
+    ready_pricing_items = [item for item in items if is_ready_for_pricing(item)]
+    needs_data_items = [item for item in items if needs_better_data(item)]
+    manual_retry_combined = sorted(
+        {item["notice_id"]: item for item in (manual + retry)}.values(),
+        key=candidate_score, reverse=True,
+    )
+
+    n_clean = sum(
+        1 for item in items
+        if item.get("intel", {}).get("usaspending_data_quality_status") == "clean"
+    )
+    n_warning = sum(
+        1 for item in items
+        if item.get("intel", {}).get("usaspending_data_quality_status") == "warning"
+    )
+    n_no_data = sum(
+        1 for item in items
+        if item.get("intel", {}).get("usaspending_intel_exists")
+        and item.get("intel", {}).get("usaspending_data_quality_status") == "no_data"
+    )
 
     lines = [
         "# GovCon Scout Triage Review Pack",
@@ -439,52 +587,65 @@ def build_review_pack(items, triage_board):
         "## Executive Summary",
         "",
         f"- **Total reviewed items:** {len(items)}",
-    ]
-
-    for status in sorted(counts):
-        lines.append(f"- **{status}:** {counts[status]}")
-
-    lines.extend([
+        f"- **Processed solicitations (full review package):** {len(processed)}",
+        f"- **Sources sought / RFI candidates:** {len(sources)}",
+        f"- **Manual review / retry candidates:** {len(manual)}",
+        f"- **Ready for subcontractor quotes / pricing review:** {len(ready_pricing_items)}",
+        f"- **Needs better market data (USAspending noise detected):** {len(needs_data_items)}",
+        f"- **USAspending: clean data:** {n_clean} | **warning:** {n_warning} | **no data:** {len(items) - n_clean - n_warning}",
         f"- **Recommended USAspending queue size:** {len(usaspending_queue)}",
-        "- Use this pack to decide where deeper award intelligence is worth the time. It does not estimate win probability.",
         "",
-        "## Pursue Now Candidates",
-        "",
-        item_table(pursue_now),
-        "",
-        "## Processed Solicitations Ready for Deeper Intel",
-        "",
-        item_table(processed),
-        "",
-        "## Sources Sought / RFI Response Candidates",
-        "",
-        item_table(sources),
-        "",
-        "## Manual Review Items",
-        "",
-        item_table(manual),
-        "",
-        "## Retry Candidates",
-        "",
-        item_table(retry),
-        "",
-        "## Pass / Not Ready",
-        "",
-        item_table(pass_items),
+        "Use this pack to decide where deeper award intelligence is worth the time. "
+        "It does not estimate win probability.",
         "",
         "## Recommended USAspending Queue",
         "",
         queue_table(usaspending_queue),
         "",
+        "## Finalist Intelligence Status",
+        "",
+        "Per-item status across all processed and intel-enriched opportunities.",
+        "",
+        finalist_intel_table(items),
+        "",
+        "## Ready for Pricing Review",
+        "",
+        "These items have a full review package (decision/compliance/bid-no-bid), a pricing schedule, "
+        "USAspending intel, and a bid price sanity check with no data quality warning.",
+        "",
+        item_table(ready_pricing_items) if ready_pricing_items else "None yet. Run USAspending + sanity check on processed solicitations with pricing.",
+        "",
+        "## Needs Better Market Data",
+        "",
+        "These items have USAspending intel, but the data quality check flagged the award range as "
+        "unreliable (unrelated contracts, implausible values, or noisy results). "
+        "Do not use the flagged award range for pricing. Search FPDS or GSA Advantage for comparable awards manually.",
+        "",
+        item_table(needs_data_items) if needs_data_items else "None flagged.",
+        "",
+        "## Sources Sought / RFI Candidates",
+        "",
+        item_table(sources) if sources else "None.",
+        "",
+        "## Manual Review / Retry Candidates",
+        "",
+        item_table(manual_retry_combined) if manual_retry_combined else "None.",
+        "",
         "## Recommended Next Actions",
         "",
-        "1. Review the processed solicitation packets before spending time on award research.",
-        "2. Run USAspending only for the recommended queue, starting with processed packages that include pricing artifacts.",
-        "3. For sources-sought/RFI candidates, use USAspending to identify likely incumbents, primes, and agency buying patterns before drafting outreach.",
-        "4. Retry manual-review candidates only when the debug evidence suggests login/session or selector gaps, not when the notice appears text-only.",
-        "5. Keep pass/not-ready items out of deeper research until attachments, clearer requirements, or stronger pursuit rationale appear.",
+        "1. **Start with Ready for Pricing Review items.** Get 2–3 subcontractor quotes, compare against "
+        "USAspending range, build CLIN-level pricing.",
+        "2. **For Needs Better Market Data items:** Search FPDS or GSA Advantage for comparable scope/location/agency awards. "
+        "Do not price from the flagged USAspending range.",
+        "3. **Run USAspending on processed items missing intel.** Priority: items with pricing schedule already extracted.",
+        "4. **For sources-sought/RFI candidates:** Use USAspending to identify likely incumbents and agency buying patterns "
+        "before drafting capability statements or outreach.",
+        "5. **Retry manual-review candidates** only when debug evidence suggests login/session or selector issues — "
+        "not when the notice appears text-only or attachment-less.",
+        "6. **Keep pass/not-ready items out of deeper research** until attachments, clearer requirements, "
+        "or stronger pursuit rationale appear.",
         "",
-    ])
+    ]
 
     return "\n".join(lines)
 
