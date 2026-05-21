@@ -213,7 +213,7 @@ def process_candidate(row, args):
             "output": f"reports/opportunity_reviews/{notice_id}_compliance_matrix.md",
         }
 
-    if manual_review_exists(notice_id) and not args.force:
+    if manual_review_exists(notice_id) and not args.force and not args.retry_manual:
         print("")
         print(f"Skipping opportunity already marked for manual review: {notice_id}")
         print("")
@@ -381,6 +381,12 @@ def parse_args():
         help="Reprocess opportunities even if reports already exist.",
     )
 
+    parser.add_argument(
+        "--retry-manual",
+        action="store_true",
+        help="Retry opportunities even if a manual-review report already exists.",
+    )
+    
     parser.add_argument(
         "--skip-auth-check",
         action="store_true",

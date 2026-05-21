@@ -1,6 +1,6 @@
 # Manual Review Required — FA254926EISTRFI
 
-**Created:** 2026-05-21 02:02:00
+**Created:** 2026-05-21 02:31:41
 
 ## Opportunity Summary
 
@@ -14,8 +14,8 @@
 
 ## Manual Review Reason
 
-- **Reason:** No PIEE link or downloadable files found
-- **Details:** Batch processor reached SAM.gov, saved debug files, but found no candidate download links.
+- **Reason:** Batch processing could not complete automatically.
+- **Details:** GovCon Scout attempted to process this opportunity, but download/extraction/analysis did not complete. Review SAM.gov and debug files.
 
 ## What GovCon Scout Tried
 
