@@ -534,7 +534,11 @@ def process_live(notice_id, url, downloads_dir, profile_dir, skip_analysis):
             print("Continuing anyway because SAM.gov may expose public opportunity links.")
             print("If download fails, use the debug screenshot to verify login/page state.")
             print("")
-            save_page_debug(page, downloads_dir, notice_id, "possible_logged_out")
+            save_page_debug(page,
+                            
+
+
+ downloads_dir, notice_id, "possible_logged_out")
         wait_for_page(page)
         save_page_debug(page, downloads_dir, notice_id, "sam")
 

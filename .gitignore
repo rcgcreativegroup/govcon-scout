@@ -26,3 +26,4 @@ node_modules/
 
 # Optional noisy generated timestamp files
 reports/*_2026-05-20_*.md
+sam-profile-login-check.png
