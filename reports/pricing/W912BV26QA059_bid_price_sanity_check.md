@@ -1,12 +1,12 @@
-# Bid Price Sanity Check — HE125426QE041
+# Bid Price Sanity Check — W912BV26QA059
 
 **Generated:** 2026-05-21
-**Notice ID:** HE125426QE041
-**Title:** Fort Campbell Integrated Pest Management (IPM) Services
-**Agency:** DEPT OF DEFENSE.DEPT OF DEFENSE EDUCATION ACTIVITY (DODEA).DOD EDUCATION ACTIVITY
-**Deadline:** 2026-06-02T16:00:00-04:00
-**Fit Score:** 65
-**NAICS:** 561710
+**Notice ID:** W912BV26QA059
+**Title:** Tulsa Resident Office Janitorial Services
+**Agency:** DEPT OF DEFENSE.DEPT OF THE ARMY.US ARMY CORPS OF ENGINEERS.ENGINEER DIVISION SOUTHWESTERN.ENDIST TULSA.W076 ENDIST TULSA
+**Deadline:** 2026-06-08T14:00:00-05:00
+**Fit Score:** 59
+**NAICS:** 561720
 **Set-Aside:** Total Small Business Set-Aside (FAR 19.5)
 
 ## Purpose
@@ -15,100 +15,47 @@ This report synthesizes the extracted CLIN structure, USAspending historical awa
 
 ## Prime-Control Classification
 
-- **Base Lane:** pest_control
+- **Base Lane:** janitorial_facility_support
 - **Specialization Level:** routine_commercial
 - **Fulfillment Path:** prime_with_subcontractor
-- **Subcontractor Feasibility:** easy_to_source
-- **Prime Control Risk:** low
+- **Subcontractor Feasibility:** moderate_to_source
+- **Prime Control Risk:** medium
 - **Recommended Action:** (not set)
 
 ## Historical Award Range (USAspending)
 
-- **Awards analyzed:** 17 deduplicated contract awards (NAICS 561710 / PSC S207)
-- **Award date range in data:** 2012-03-30 to 2025-09-30
+> **DATA QUALITY WARNING:** The award range returned by USAspending appears to contain
+> unrelated contracts. The minimum award value ($48,435,910) is far above what is expected
+> for this lane (`janitorial`). The figures below should NOT be used for pricing.
+> Re-run USAspending with tighter filters or search FPDS manually for comparable awards.
 
-| Metric | Value |
-|---|---:|
-| Minimum | $1,896,101 |
-| Median | $2,192,913 |
-| Average | $2,478,229 |
-| Maximum | $3,908,553 |
+| Metric | Value | Status |
+|---|---:|---|
+| Minimum | $48,435,910 | NOT RELIABLE |
+| Median | $111,766,954 | NOT RELIABLE |
+| Average | $4,600,593,880 | NOT RELIABLE |
+| Maximum | $40,927,152,397 | NOT RELIABLE |
 
-> **Important:** These figures are from comparable awards across the federal market — not this specific location or agency. Award amounts vary by scope, facility count, period of performance, location, and option structure. Use as a sanity check range, not a bid target.
+- Awards returned: 23 (likely mixed contract types — validate before use)
+- Date range in data: 2005-06-01 to 2022-01-01
 
 ### Likely Incumbents / Competitors
 
 | Recipient | Awards | Total Value |
 |---|---:|---:|
-| ALLEYMOR, INC. | 2 | $5,939,708 |
-| ACCORD FEDERAL SERVICES, LLC | 2 | $4,468,879 |
-| PESTMASTER SERVICES, L.P. | 1 | $3,908,553 |
-| CDS SERVICES INC | 1 | $3,426,964 |
-| POWER HOUSE TERMITE AND PEST CONTROL INC. | 1 | $3,246,200 |
+| LAWRENCE LIVERMORE NATIONAL SECURITY, LLC | 1 | $40,927,152,397 |
+| BELL BOEING JOINT PROJECT OFFICE | 3 | $24,975,682,772 |
+| THE REGENTS OF THE UNIVERSITY OF CALIFORNIA | 1 | $19,558,423,796 |
+| THE BOEING COMPANY | 1 | $10,477,704,426 |
+| CALIFORNIA INSTITUTE OF TECHNOLOGY | 3 | $5,805,909,329 |
 
 > Research these firms before finalizing pricing. They represent the most active recipients in similar federal pest control awards. Some may be incumbents; others are pricing benchmarks and likely competitors.
 
 ## CLIN Structure
 
-**26 CLINs extracted across 6 performance periods.**
-Contract structure: 5 full annual periods + option to extend.
-
-### Base Period (FY27, Jul 2026 – Jun 2027)
-
-| CLIN | Description | Qty | Unit |
-|---|---|---:|---|
-| 0001 | Ant/Roach Treatment | 2 | Each |
-| 0002 | Field/Turf Treatment | 12 | Months |
-| 0003 | Termite Treatment | 1 | Each |
-| 0004 | Wasp/Bee Treatment | 6 | Bimonthly |
-| 0005 | Rodent/Small Animal Control | 4 | Each |
-
-### Option Period 1 (FY28, Jul 2027 – Jun 2028)
-
-| CLIN | Description | Qty | Unit |
-|---|---|---:|---|
-| 1001 | Ant/Roach Treatment | 2 | Each |
-| 1002 | Field/Turf Treatment | 12 | Months |
-| 1003 | Termite Treatment | 1 | Each |
-| 1004 | Wasp/Bee Treatment | 6 | Bimonthly |
-| 1005 | Rodent/Small Animal Control | 4 | Each |
-
-### Option Period 2 (FY29, Jul 2028 – Jun 2029)
-
-| CLIN | Description | Qty | Unit |
-|---|---|---:|---|
-| 2001 | Ant/Roach Treatment | 2 | Each |
-| 2002 | Field/Turf Treatment | 12 | Months |
-| 2003 | Termite Treatment | 1 | Each |
-| 2004 | Wasp/Bee Treatment | 6 | Bimonthly |
-| 2005 | Rodent/Small Animal Control | 4 | Each |
-
-### Option Period 3 (FY30, Jul 2029 – Jun 2030)
-
-| CLIN | Description | Qty | Unit |
-|---|---|---:|---|
-| 3001 | Ant/Roach Treatment | 2 | Each |
-| 3002 | Field/Turf Treatment | 12 | Months |
-| 3003 | Termite Treatment | 1 | Each |
-| 3004 | Wasp/Bee Treatment | 6 | Bimonthly |
-| 3005 | Rodent/Small Animal Control | 4 | Each |
-
-### Option Period 4 (FY31, Jul 2030 – Jun 2031)
-
-| CLIN | Description | Qty | Unit |
-|---|---|---:|---|
-| 4001 | Ant/Roach Treatment | 2 | Each |
-| 4002 | Field/Turf Treatment | 12 | Months |
-| 4003 | Termite Treatment | 1 | Each |
-| 4004 | Wasp/Bee Treatment | 6 | Bimonthly |
-| 4005 | Rodent/Small Animal Control | 4 | Each |
-
-### Option to Extend (6 months, Jul – Dec 2031)
-
-| CLIN | Description | Qty | Unit |
-|---|---|---:|---|
-| 5000 | Option to Extend Services | 6 | Months |
-
+- Pricing schedule not found or CLINs not parsed.
+  Check: `reports/pricing/W912BV26QA059_pricing_schedule.md`
+  Or: `reports/document_extracts/W912BV26QA059/ATT_4__Pricing_Schedule.txt`
 
 ## Pricing Realism Notes
 
@@ -116,11 +63,10 @@ Contract structure: 5 full annual periods + option to extend.
 
 **Structural observations:**
 
-- **5-year FFP with option to extend.** Unit prices must absorb inflation, supply cost escalation, and labor increases over the full performance period.
 - **5 service types per period.** Ant/Roach, Field/Turf, Termite, Wasp/Bee, Rodent/Small Animal — each CLIN must include all labor, materials, travel, callbacks, and contingency for that scope.
 - **School environment.** DoDEA Fort Campbell serves ~4,000 students across 6 schools. Scheduling, chemical safety, staff coordination, and possible after-hours/weekend execution add labor overhead beyond basic field-time estimates.
 - **Military installation access.** Fort Campbell base access requires badge/escort coordination, personnel vetting, and security compliance. Build mobilization time and overhead into per-visit cost assumptions.
-- **Market range benchmark:** Similar federal awards range from $1,896,101 to $3,908,553 (median $2,192,913). These are full-contract award totals. Divide by scope and period count to calibrate per-year assumptions.
+- **Market range benchmark:** Similar federal awards range from $48,435,910 to $40,927,152,397 (median $111,766,954). These are full-contract award totals. Divide by scope and period count to calibrate per-year assumptions.
 
 ## Underpricing Risks
 
@@ -139,10 +85,9 @@ Contract structure: 5 full annual periods + option to extend.
 ## Subcontractor Quote Requirements
 
 - Subcontractor execution is required. JPTR/RCG holds the prime; a licensed pest control vendor performs the work.
-- Subcontractor market for pest control is broad and competitive. Local vendors are generally available without unusual licensing barriers.
-- **Get 2–3 firm quotes** covering all CLINs, all periods, and the Fort Campbell site before finalizing pricing.
-- Prime control risk is **low**. Standard sub management overhead (5–10% markup) is appropriate.
-- Replace-ability of sub is straightforward in this lane. Execution risk is manageable.
+- Sourcing will take some effort. Allow 2–4 weeks to identify and qualify vendors.
+- Get at least 2 quotes. Confirm license requirements for Kentucky and military installation work.
+- Prime control risk is **medium**. Add 10–15% management and oversight margin.
 
 **Minimum quote package to send each vendor candidate:**
 
@@ -157,15 +102,13 @@ Contract structure: 5 full annual periods + option to extend.
 
 ## Margin and Control Warnings
 
-- Prime control risk is rated **low**. Standard sub management markup (5–10%) is appropriate.
-- JPTR/RCG holds the prime contract and manages performance accountability. Sub failure is a management issue, not a technical skill gap.
-- Confirm sub has valid pest control licensing for Kentucky and can operate on a military installation.
-- Push all applicable FAR/DFARS flow-downs, base access obligations, WAWF billing requirements, and quality control obligations to the subcontractor via teaming/subcontract agreement.
+- Prime control risk is rated **medium**. Include 10–15% management and oversight margin.
+- Identify a backup subcontractor or teaming partner before finalizing pricing.
 
 ## Recommended Pricing Next Actions
 
-1. **Get 2–3 pest control subcontractor quotes** — all CLINs, all periods, site access and compliance included.
-2. **Compare sub quotes against comparable award data** (historical market range $1,896,101 – $3,908,553, median $2,192,913) to pressure-test realism.
+1. **Get 2–3 janitorial subcontractor quotes** — all CLINs, all periods, site access and compliance included.
+2. **Compare sub quotes against comparable award data** (USAspending range unreliable for this opportunity — search FPDS or GSA Advantage for comparable awards) to pressure-test realism.
 3. **Build price from CLINs up** — do not work backward from a competitor total. Each CLIN needs its own cost buildup.
 4. **Request site visit notes** — the May 18–19 site visits may have Q&A or clarifications distributed to all offerors. Request from CO before pricing.
 5. **Confirm after-hours / emergency scope** — if out-of-hours callbacks are required, price them explicitly or document they are absorbed in base CLIN frequency assumptions.
@@ -175,9 +118,9 @@ Contract structure: 5 full annual periods + option to extend.
 
 ## Source Files Used
 
-- `reports/market_intel/HE125426QE041_usaspending_intel.md`
-- `reports/pricing/HE125426QE041_pricing_schedule.md`
-- `reports/document_extracts/HE125426QE041/ATT_4__Pricing_Schedule.txt`
-- `reports/opportunity_reviews/HE125426QE041_decision_report.md`
-- `reports/opportunity_reviews/HE125426QE041_compliance_matrix.md`
+- `reports/market_intel/W912BV26QA059_usaspending_intel.md`
+- `reports/pricing/W912BV26QA059_pricing_schedule.md`
+- `reports/document_extracts/W912BV26QA059/ATT_4__Pricing_Schedule.txt`
+- `reports/opportunity_reviews/W912BV26QA059_decision_report.md`
+- `reports/opportunity_reviews/W912BV26QA059_compliance_matrix.md`
 - `exports/govcon_scout_opportunities_latest.csv`

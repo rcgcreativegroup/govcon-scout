@@ -145,10 +145,49 @@ def group_clins_by_period(clins):
     return groups, order
 
 
+LANE_ALIASES = {
+    "janitorial_facility_support": "janitorial",
+    "janitorial_facilities": "janitorial",
+    "trucking_transportation": "trucking",
+    "towing_hauling": "towing",
+    "roofing_hvac_trades": "roofing/HVAC",
+    "facilities_services": "facilities",
+}
+
+LANE_EXPECTED_MAX = {
+    "janitorial": 2_000_000,
+    "janitorial_facility_support": 2_000_000,
+    "pest_control": 5_000_000,
+    "landscaping": 3_000_000,
+    "roofing_hvac_trades": 5_000_000,
+    "facilities_services": 5_000_000,
+    "flooring": 2_000_000,
+    "basic_security": 5_000_000,
+    "trucking_transportation": 3_000_000,
+    "towing_hauling": 1_000_000,
+    "commodities": 2_000_000,
+}
+
+
+def award_range_is_noisy(award_range, lane):
+    min_val = award_range.get("min")
+    max_val = award_range.get("max")
+    if not min_val or not max_val:
+        return False
+    expected_max = LANE_EXPECTED_MAX.get(lane, 20_000_000)
+    # Flag if the minimum alone exceeds 3x expected max for this lane
+    if min_val > expected_max * 3:
+        return True
+    # Flag if the spread is absurdly wide (max/min > 500x typically indicates mixed contract types)
+    if min_val > 0 and max_val / min_val > 500:
+        return True
+    return False
+
+
 ROUTINE_LANES = {
-    "janitorial", "pest_control", "trucking_transportation", "towing_hauling",
-    "roofing_hvac_trades", "facilities_services", "landscaping", "flooring",
-    "basic_security", "commodities",
+    "janitorial", "janitorial_facility_support", "pest_control",
+    "trucking_transportation", "towing_hauling", "roofing_hvac_trades",
+    "facilities_services", "landscaping", "flooring", "basic_security", "commodities",
 }
 
 
@@ -316,10 +355,32 @@ def build_report(notice_id, row, intel_text, pricing_text, today_str, overrides=
 
     out.append("## Historical Award Range (USAspending)")
     out.append("")
-    if award_range:
+    lane = pc.get("base_lane", "")
+    noisy = award_range_is_noisy(award_range, lane) if award_range else False
+
+    lane_display = LANE_ALIASES.get(lane, lane) if lane else "unknown"
+    if award_range and noisy:
+        out.append("> **DATA QUALITY WARNING:** The award range returned by USAspending appears to contain")
+        out.append("> unrelated contracts. The minimum award value ({}) is far above what is expected".format(money(award_range.get("min", 0))))
+        out.append("> for this lane (`{}`). The figures below should NOT be used for pricing.".format(lane_display))
+        out.append("> Re-run USAspending with tighter filters or search FPDS manually for comparable awards.")
+        out.append("")
+        out.append("| Metric | Value | Status |")
+        out.append("|---|---:|---|")
+        for key, label in [("min", "Minimum"), ("median", "Median"), ("avg", "Average"), ("max", "Maximum")]:
+            if key in award_range:
+                out.append(f"| {label} | {money(award_range[key])} | NOT RELIABLE |")
+        out.append("")
         count = award_range.get("count", "unknown")
         date_range_str = award_range.get("date_range", "unknown")
-        out.append(f"- **Awards analyzed:** {count} deduplicated contract awards (NAICS 561710 / PSC S207)")
+        out.append(f"- Awards returned: {count} (likely mixed contract types — validate before use)")
+        out.append(f"- Date range in data: {date_range_str}")
+    elif award_range:
+        naics = safe_text(row.get("naics_code", ""))
+        psc = safe_text(row.get("psc_code") or row.get("psc", ""))
+        count = award_range.get("count", "unknown")
+        date_range_str = award_range.get("date_range", "unknown")
+        out.append(f"- **Awards analyzed:** {count} deduplicated contract awards (NAICS {naics} / PSC {psc})")
         out.append(f"- **Award date range in data:** {date_range_str}")
         out.append("")
         out.append("| Metric | Value |")
@@ -329,9 +390,9 @@ def build_report(notice_id, row, intel_text, pricing_text, today_str, overrides=
                 out.append(f"| {label} | {money(award_range[key])} |")
         out.append("")
         out.append(
-            "> **Important:** These figures are from comparable NAICS 561710 / PSC S207 awards across the federal market — "
-            "not Fort Campbell specifically. Award amounts vary by scope, facility count, period of performance, "
-            "location, and option structure. Use as a sanity check range, not a bid target."
+            "> **Important:** These figures are from comparable awards across the federal market — "
+            "not this specific location or agency. Award amounts vary by scope, facility count, "
+            "period of performance, location, and option structure. Use as a sanity check range, not a bid target."
         )
     else:
         out.append("- USAspending intel not found or award range not parsed.")
@@ -475,11 +536,17 @@ def build_report(notice_id, row, intel_text, pricing_text, today_str, overrides=
 
     out.append("## Recommended Pricing Next Actions")
     out.append("")
-    low_str = money(award_range.get("min", 0)) if award_range.get("min") else "unknown"
-    high_str = money(award_range.get("max", 0)) if award_range.get("max") else "unknown"
-    med_str = money(award_range.get("median", 0)) if award_range.get("median") else "unknown"
-    out.append("1. **Get 2–3 pest control subcontractor quotes** — all CLINs, all periods, Fort Campbell site, base access included.")
-    out.append(f"2. **Compare sub quotes against historical market range** ({low_str} – {high_str}, median {med_str}) to pressure-test realism.")
+    if noisy or not award_range.get("min"):
+        range_note = "USAspending range unreliable for this opportunity — search FPDS or GSA Advantage for comparable awards"
+    else:
+        low_str = money(award_range.get("min", 0))
+        high_str = money(award_range.get("max", 0))
+        med_str = money(award_range.get("median", 0))
+        range_note = f"historical market range {low_str} – {high_str}, median {med_str}"
+
+    lane_label = LANE_ALIASES.get(lane, lane).replace("_", " ") if lane else "subcontractor"
+    out.append(f"1. **Get 2–3 {lane_label} subcontractor quotes** — all CLINs, all periods, site access and compliance included.")
+    out.append(f"2. **Compare sub quotes against comparable award data** ({range_note}) to pressure-test realism.")
     out.append("3. **Build price from CLINs up** — do not work backward from a competitor total. Each CLIN needs its own cost buildup.")
     out.append("4. **Request site visit notes** — the May 18–19 site visits may have Q&A or clarifications "
                "distributed to all offerors. Request from CO before pricing.")
