@@ -288,6 +288,21 @@ def open_browser_context(playwright, auth_state, headless=True):
     return browser, context
 
 
+def page_looks_logged_out(page):
+    html = page.content().lower()
+
+    logged_out_markers = [
+        "role-anonymous",
+        'id="signin"',
+        "signin-trigger-btn",
+        "sign in",
+        '"uid":0',
+        "sign-in-button-current",
+    ]
+
+    return any(marker in html for marker in logged_out_markers)
+
+
 def test_auth(auth_state, headless=True, screenshot_path="sam-session-test.png"):
     print("")
     print(f"Testing SAM.gov session with auth state: {auth_state}")
@@ -302,18 +317,35 @@ def test_auth(auth_state, headless=True, screenshot_path="sam-session-test.png")
 
         page = context.new_page()
         page.goto("https://sam.gov", wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(5000)
 
-        print(f"Page title: {page.title()}")
+        title = page.title()
+        print(f"Page title: {title}")
 
         page.screenshot(path=screenshot_path, full_page=True)
         print(f"Saved screenshot: {screenshot_path}")
 
+        logged_out = page_looks_logged_out(page)
+
         context.close()
         browser.close()
 
+    if logged_out:
+        print("")
+        print("SAM.gov session check failed.")
+        print("The page loaded, but it appears to be logged out or anonymous.")
+        print("")
+        print("Refresh auth.json through noVNC:")
+        print("")
+        print("  DISPLAY=:99 npx playwright codegen --save-storage=auth.json https://sam.gov")
+        print("")
+        print("Log in manually, complete MFA, then stop codegen with CTRL+C.")
+        print("")
+        sys.exit(1)
+
     print("")
     print("Auth test completed.")
+    print("SAM.gov appears logged in.")
     print("")
 
 
