@@ -59,9 +59,9 @@ def auth_ready(auth_state):
     if not Path(auth_state).exists():
         print("")
         print(f"Missing auth file: {auth_state}")
-        print("Run:")
+        print("Use live mode instead:")
         print("")
-        print("  python src/sam_browser_downloader.py --login")
+        print("  python src/process_shortlist.py --limit 3 --live")
         print("")
         return False
 
@@ -87,6 +87,10 @@ def already_processed(notice_id):
     return all(path.exists() for path in required_outputs)
 
 
+def manual_review_exists(notice_id):
+    return (Path("reports/manual_review") / f"{notice_id}_manual_review.md").exists()
+
+
 def select_candidates(
     rows,
     limit,
@@ -99,7 +103,11 @@ def select_candidates(
     candidates = []
 
     for row in rows:
-        notice_id = safe_text(row.get("notice_id") or row.get("solicitation_number") or row.get("sam_notice_id"))
+        notice_id = safe_text(
+            row.get("notice_id")
+            or row.get("solicitation_number")
+            or row.get("sam_notice_id")
+        )
         url = safe_text(row.get("ui_link"))
 
         if not notice_id or not url:
@@ -148,25 +156,47 @@ def write_batch_report(results, output_dir):
     lines.append("")
     lines.append(f"**Run Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("")
-    lines.append("| Notice ID | Status | Return Code | Title | Output |")
-    lines.append("|---|---:|---:|---|---|")
+    lines.append("| Notice ID | Status | Return Code | Mode | Title | Output |")
+    lines.append("|---|---:|---:|---:|---|---|")
 
     for result in results:
         notice_id = result.get("notice_id", "")
         status = result.get("status", "")
         code = result.get("return_code", "")
+        mode = result.get("mode", "")
         title = result.get("title", "").replace("|", "\\|")
         output = result.get("output", "").replace("|", "\\|")
 
-        lines.append(f"| {notice_id} | {status} | {code} | {title} | {output} |")
+        lines.append(f"| {notice_id} | {status} | {code} | {mode} | {title} | {output} |")
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
 
     return str(report_path)
 
 
+def build_manual_review(notice_id, url, reason, details, downloads_dir):
+    return run_command([
+        sys.executable,
+        "src/manual_review_report.py",
+        "--notice-id",
+        notice_id,
+        "--url",
+        url,
+        "--reason",
+        reason,
+        "--details",
+        details,
+        "--downloads-dir",
+        downloads_dir,
+    ])
+
+
 def process_candidate(row, args):
-    notice_id = safe_text(row.get("notice_id") or row.get("solicitation_number") or row.get("sam_notice_id"))
+    notice_id = safe_text(
+        row.get("notice_id")
+        or row.get("solicitation_number")
+        or row.get("sam_notice_id")
+    )
     url = safe_text(row.get("ui_link"))
     title = safe_text(row.get("title"))
 
@@ -179,48 +209,95 @@ def process_candidate(row, args):
             "title": title,
             "status": "Skipped — Already Processed",
             "return_code": 0,
+            "mode": "live" if args.live else "saved-auth",
             "output": f"reports/opportunity_reviews/{notice_id}_compliance_matrix.md",
         }
 
-    command = [
-        sys.executable,
-        "src/process_opportunity.py",
-        "--notice-id",
-        notice_id,
-        "--url",
-        url,
-        "--auth-state",
-        args.auth_state,
-        "--downloads-dir",
-        args.downloads_dir,
-        "--skip-auth-check",
-    ]
+    if manual_review_exists(notice_id) and not args.force:
+        print("")
+        print(f"Skipping opportunity already marked for manual review: {notice_id}")
+        print("")
+        return {
+            "notice_id": notice_id,
+            "title": title,
+            "status": "Skipped — Manual Review Exists",
+            "return_code": 0,
+            "mode": "live" if args.live else "saved-auth",
+            "output": f"reports/manual_review/{notice_id}_manual_review.md",
+        }
 
-    if args.skip_download:
-        command.append("--skip-download")
+    if args.live:
+        command = [
+            sys.executable,
+            "src/process_opportunity_live.py",
+            "--notice-id",
+            notice_id,
+            "--url",
+            url,
+            "--downloads-dir",
+            args.downloads_dir,
+        ]
 
-    if args.skip_unzip:
-        command.append("--skip-unzip")
+        if args.skip_analysis:
+            command.append("--skip-analysis")
 
-    if args.skip_extract:
-        command.append("--skip-extract")
+    else:
+        command = [
+            sys.executable,
+            "src/process_opportunity.py",
+            "--notice-id",
+            notice_id,
+            "--url",
+            url,
+            "--auth-state",
+            args.auth_state,
+            "--downloads-dir",
+            args.downloads_dir,
+            "--skip-auth-check",
+        ]
 
-    if args.skip_decision:
-        command.append("--skip-decision")
+        if args.skip_download:
+            command.append("--skip-download")
 
-    if args.skip_compliance:
-        command.append("--skip-compliance")
+        if args.skip_unzip:
+            command.append("--skip-unzip")
+
+        if args.skip_extract:
+            command.append("--skip-extract")
+
+        if args.skip_decision:
+            command.append("--skip-decision")
+
+        if args.skip_compliance:
+            command.append("--skip-compliance")
 
     return_code = run_command(command)
 
-    status = "Processed" if return_code == 0 else "Failed"
+    if return_code == 0:
+        status = "Processed"
+        output = f"reports/opportunity_reviews/{notice_id}_compliance_matrix.md"
+    else:
+        status = "Manual Review Required"
+        output = f"reports/manual_review/{notice_id}_manual_review.md"
+
+        build_manual_review(
+            notice_id=notice_id,
+            url=url,
+            reason="Batch processing could not complete automatically.",
+            details=(
+                "GovCon Scout attempted to process this opportunity, but download/extraction/analysis "
+                "did not complete. Review SAM.gov and debug files."
+            ),
+            downloads_dir=args.downloads_dir,
+        )
 
     return {
         "notice_id": notice_id,
         "title": title,
         "status": status,
         "return_code": return_code,
-        "output": f"reports/opportunity_reviews/{notice_id}_compliance_matrix.md",
+        "mode": "live" if args.live else "saved-auth",
+        "output": output,
     }
 
 
@@ -274,6 +351,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Use live noVNC browser processing instead of saved auth.json processing.",
+    )
+
+    parser.add_argument(
         "--include-teaming",
         action="store_true",
         help="Include teaming/subcontractor targets.",
@@ -307,31 +390,37 @@ def parse_args():
     parser.add_argument(
         "--skip-download",
         action="store_true",
-        help="Skip download step for each opportunity.",
+        help="Skip download step for each opportunity in saved-auth mode.",
     )
 
     parser.add_argument(
         "--skip-unzip",
         action="store_true",
-        help="Skip unzip step for each opportunity.",
+        help="Skip unzip step for each opportunity in saved-auth mode.",
     )
 
     parser.add_argument(
         "--skip-extract",
         action="store_true",
-        help="Skip text extraction step for each opportunity.",
+        help="Skip text extraction step for each opportunity in saved-auth mode.",
     )
 
     parser.add_argument(
         "--skip-decision",
         action="store_true",
-        help="Skip decision report generation.",
+        help="Skip decision report generation in saved-auth mode.",
     )
 
     parser.add_argument(
         "--skip-compliance",
         action="store_true",
-        help="Skip compliance matrix generation.",
+        help="Skip compliance matrix generation in saved-auth mode.",
+    )
+
+    parser.add_argument(
+        "--skip-analysis",
+        action="store_true",
+        help="Skip analysis pipeline in live mode after download.",
     )
 
     parser.add_argument(
@@ -367,6 +456,7 @@ def main():
         print("  python src/process_shortlist.py --limit 3 --include-teaming")
         print("  python src/process_shortlist.py --limit 3 --include-blocked")
         print("  python src/process_shortlist.py --notice-ids HE125426QE041")
+        print("  python src/process_shortlist.py --limit 3 --live")
         print("")
         sys.exit(1)
 
@@ -382,12 +472,22 @@ def main():
             f"{row.get('title')}"
         )
 
-    if not args.skip_auth_check:
+    if not args.live and not args.skip_auth_check:
         if not auth_ready(args.auth_state):
             print("")
             print("Stopping batch before processing because SAM.gov auth is not ready.")
+            print("Use live mode if saved auth is unreliable:")
+            print("")
+            print("  python src/process_shortlist.py --limit 3 --live")
             print("")
             sys.exit(1)
+
+    if args.live:
+        print("")
+        print("Live mode enabled.")
+        print("Make sure noVNC is running on forwarded port 6080 and DISPLAY=:99 is set.")
+        print("Each selected opportunity may open in the live browser session.")
+        print("")
 
     results = []
 
