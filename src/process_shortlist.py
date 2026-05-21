@@ -11,6 +11,30 @@ DEFAULT_BATCH_REPORT_DIR = "reports/batch_runs"
 DEFAULT_AUTH_STATE = "auth.json"
 
 
+EARLY_STAGE_KEYWORDS = [
+    "sources sought",
+    "source sought",
+    "request for information",
+    "rfi",
+    "market research",
+    "special notice",
+    "presolicitation",
+    "pre-solicitation",
+]
+
+SOLICITATION_KEYWORDS = [
+    "combined synopsis/solicitation",
+    "combinedsynopsissolicitation",
+    "solicitation",
+    "rfq",
+    "rfp",
+    "request for quote",
+    "request for proposal",
+    "invitation for bid",
+    "ifb",
+]
+
+
 def safe_text(value):
     if value is None:
         return ""
@@ -87,8 +111,55 @@ def already_processed(notice_id):
     return all(path.exists() for path in required_outputs)
 
 
+def pricing_processed(notice_id):
+    return (
+        (Path("reports/pricing") / f"{notice_id}_pricing_schedule.md").exists()
+        and (Path("reports/pricing") / f"{notice_id}_pricing_table.csv").exists()
+    )
+
+
+def sources_sought_processed(notice_id):
+    return (Path("reports/sources_sought") / f"{notice_id}_sources_sought_plan.md").exists()
+
+
 def manual_review_exists(notice_id):
     return (Path("reports/manual_review") / f"{notice_id}_manual_review.md").exists()
+
+
+def combined_row_text(row):
+    fields = [
+        "title",
+        "description",
+        "notice_type",
+        "type",
+        "solicitation_type",
+        "base_type",
+        "archive_type",
+        "conditional_recommendation",
+        "recommendation",
+        "matched_keywords",
+        "matched_core_strengths",
+    ]
+
+    return " ".join(safe_text(row.get(field)) for field in fields).lower()
+
+
+def classify_route(row):
+    text = combined_row_text(row)
+    title = safe_text(row.get("title")).lower()
+    notice_type = safe_text(row.get("notice_type") or row.get("type") or row.get("solicitation_type")).lower()
+    combined = f"{notice_type} {title} {text}"
+
+    if any(keyword in combined for keyword in EARLY_STAGE_KEYWORDS):
+        return "sources_sought"
+
+    if any(keyword in combined for keyword in SOLICITATION_KEYWORDS):
+        return "solicitation"
+
+    if safe_text(row.get("ready_for_bid_no_bid_analysis")).lower() == "yes":
+        return "solicitation"
+
+    return "solicitation"
 
 
 def select_candidates(
@@ -156,18 +227,19 @@ def write_batch_report(results, output_dir):
     lines.append("")
     lines.append(f"**Run Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("")
-    lines.append("| Notice ID | Status | Return Code | Mode | Title | Output |")
-    lines.append("|---|---:|---:|---:|---|---|")
+    lines.append("| Notice ID | Status | Return Code | Mode | Route | Title | Output |")
+    lines.append("|---|---:|---:|---:|---:|---|---|")
 
     for result in results:
         notice_id = result.get("notice_id", "")
         status = result.get("status", "")
         code = result.get("return_code", "")
         mode = result.get("mode", "")
+        route = result.get("route", "")
         title = result.get("title", "").replace("|", "\\|")
         output = result.get("output", "").replace("|", "\\|")
 
-        lines.append(f"| {notice_id} | {status} | {code} | {mode} | {title} | {output} |")
+        lines.append(f"| {notice_id} | {status} | {code} | {mode} | {route} | {title} | {output} |")
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -191,7 +263,16 @@ def build_manual_review(notice_id, url, reason, details, downloads_dir):
     ])
 
 
-def process_candidate(row, args):
+def run_sources_sought_planner(notice_id):
+    return run_command([
+        sys.executable,
+        "src/sources_sought_planner.py",
+        "--notice-id",
+        notice_id,
+    ])
+
+
+def process_sources_sought_candidate(row, args):
     notice_id = safe_text(
         row.get("notice_id")
         or row.get("solicitation_number")
@@ -200,16 +281,68 @@ def process_candidate(row, args):
     url = safe_text(row.get("ui_link"))
     title = safe_text(row.get("title"))
 
-    if already_processed(notice_id) and not args.force:
+    if sources_sought_processed(notice_id) and not args.force and not args.retry_manual:
         print("")
-        print(f"Skipping already processed opportunity: {notice_id}")
+        print(f"Skipping already planned sources sought/RFI opportunity: {notice_id}")
         print("")
         return {
             "notice_id": notice_id,
             "title": title,
-            "status": "Skipped — Already Processed",
+            "status": "Skipped — Sources Sought Plan Exists",
+            "return_code": 0,
+            "mode": "smart",
+            "route": "sources_sought",
+            "output": f"reports/sources_sought/{notice_id}_sources_sought_plan.md",
+        }
+
+    return_code = run_sources_sought_planner(notice_id)
+
+    if return_code == 0:
+        status = "Processed — Sources Sought Plan"
+        output = f"reports/sources_sought/{notice_id}_sources_sought_plan.md"
+    else:
+        status = "Manual Review Required"
+        output = f"reports/manual_review/{notice_id}_manual_review.md"
+
+        build_manual_review(
+            notice_id=notice_id,
+            url=url,
+            reason="Sources sought planner could not complete.",
+            details="GovCon Scout routed this as an early-stage notice, but sources_sought_planner.py failed.",
+            downloads_dir=args.downloads_dir,
+        )
+
+    return {
+        "notice_id": notice_id,
+        "title": title,
+        "status": status,
+        "return_code": return_code,
+        "mode": "smart",
+        "route": "sources_sought",
+        "output": output,
+    }
+
+
+def process_solicitation_candidate(row, args):
+    notice_id = safe_text(
+        row.get("notice_id")
+        or row.get("solicitation_number")
+        or row.get("sam_notice_id")
+    )
+    url = safe_text(row.get("ui_link"))
+    title = safe_text(row.get("title"))
+
+    if already_processed(notice_id) and pricing_processed(notice_id) and not args.force:
+        print("")
+        print(f"Skipping already fully processed solicitation: {notice_id}")
+        print("")
+        return {
+            "notice_id": notice_id,
+            "title": title,
+            "status": "Skipped — Fully Processed",
             "return_code": 0,
             "mode": "live" if args.live else "saved-auth",
+            "route": "solicitation",
             "output": f"reports/opportunity_reviews/{notice_id}_compliance_matrix.md",
         }
 
@@ -223,6 +356,7 @@ def process_candidate(row, args):
             "status": "Skipped — Manual Review Exists",
             "return_code": 0,
             "mode": "live" if args.live else "saved-auth",
+            "route": "solicitation",
             "output": f"reports/manual_review/{notice_id}_manual_review.md",
         }
 
@@ -271,10 +405,13 @@ def process_candidate(row, args):
         if args.skip_compliance:
             command.append("--skip-compliance")
 
+        if args.skip_pricing:
+            command.append("--skip-pricing")
+
     return_code = run_command(command)
 
     if return_code == 0:
-        status = "Processed"
+        status = "Processed — Solicitation"
         output = f"reports/opportunity_reviews/{notice_id}_compliance_matrix.md"
     else:
         status = "Manual Review Required"
@@ -283,9 +420,9 @@ def process_candidate(row, args):
         build_manual_review(
             notice_id=notice_id,
             url=url,
-            reason="Batch processing could not complete automatically.",
+            reason="Solicitation processing could not complete automatically.",
             details=(
-                "GovCon Scout attempted to process this opportunity, but download/extraction/analysis "
+                "GovCon Scout attempted to process this solicitation, but download/extraction/analysis "
                 "did not complete. Review SAM.gov and debug files."
             ),
             downloads_dir=args.downloads_dir,
@@ -297,8 +434,31 @@ def process_candidate(row, args):
         "status": status,
         "return_code": return_code,
         "mode": "live" if args.live else "saved-auth",
+        "route": "solicitation",
         "output": output,
     }
+
+
+def process_candidate(row, args):
+    if args.smart:
+        route = classify_route(row)
+
+        notice_id = safe_text(
+            row.get("notice_id")
+            or row.get("solicitation_number")
+            or row.get("sam_notice_id")
+        )
+
+        print("")
+        print(f"Smart route for {notice_id}: {route}")
+        print("")
+
+        if route == "sources_sought":
+            return process_sources_sought_candidate(row, args)
+
+        return process_solicitation_candidate(row, args)
+
+    return process_solicitation_candidate(row, args)
 
 
 def parse_notice_ids(value):
@@ -357,6 +517,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--smart",
+        action="store_true",
+        help="Automatically route sources sought/RFI notices to the sources sought planner and solicitations to document processing.",
+    )
+
+    parser.add_argument(
         "--include-teaming",
         action="store_true",
         help="Include teaming/subcontractor targets.",
@@ -386,7 +552,7 @@ def parse_args():
         action="store_true",
         help="Retry opportunities even if a manual-review report already exists.",
     )
-    
+
     parser.add_argument(
         "--skip-auth-check",
         action="store_true",
@@ -421,6 +587,12 @@ def parse_args():
         "--skip-compliance",
         action="store_true",
         help="Skip compliance matrix generation in saved-auth mode.",
+    )
+
+    parser.add_argument(
+        "--skip-pricing",
+        action="store_true",
+        help="Skip pricing schedule extraction in saved-auth mode.",
     )
 
     parser.add_argument(
@@ -459,10 +631,11 @@ def main():
         print("")
         print("Try one of these:")
         print("")
+        print("  python src/process_shortlist.py --limit 3 --smart")
+        print("  python src/process_shortlist.py --limit 3 --smart --live")
         print("  python src/process_shortlist.py --limit 3 --include-teaming")
         print("  python src/process_shortlist.py --limit 3 --include-blocked")
-        print("  python src/process_shortlist.py --notice-ids HE125426QE041")
-        print("  python src/process_shortlist.py --limit 3 --live")
+        print("  python src/process_shortlist.py --notice-ids HE125426QE041 --smart")
         print("")
         sys.exit(1)
 
@@ -471,20 +644,46 @@ def main():
     print("")
 
     for index, row in enumerate(candidates, start=1):
+        route = classify_route(row) if args.smart else "solicitation"
         print(
             f"{index}. {row.get('notice_id')} — "
+            f"Route: {route} — "
             f"Prime Reality: {row.get('prime_reality_score')} — "
             f"Fit: {row.get('fit_score')} — "
             f"{row.get('title')}"
         )
 
+        needs_saved_auth = False
+
     if not args.live and not args.skip_auth_check:
+        for row in candidates:
+            notice_id = safe_text(
+                row.get("notice_id")
+                or row.get("solicitation_number")
+                or row.get("sam_notice_id")
+            )
+
+            route = classify_route(row) if args.smart else "solicitation"
+
+            if route == "sources_sought":
+                continue
+
+            if already_processed(notice_id) and pricing_processed(notice_id) and not args.force:
+                continue
+
+            if manual_review_exists(notice_id) and not args.force and not args.retry_manual:
+                continue
+
+            needs_saved_auth = True
+            break
+
+    if needs_saved_auth:
         if not auth_ready(args.auth_state):
             print("")
             print("Stopping batch before processing because SAM.gov auth is not ready.")
             print("Use live mode if saved auth is unreliable:")
             print("")
-            print("  python src/process_shortlist.py --limit 3 --live")
+            print("  python src/process_shortlist.py --limit 3 --smart --live")
             print("")
             sys.exit(1)
 
@@ -492,7 +691,8 @@ def main():
         print("")
         print("Live mode enabled.")
         print("Make sure noVNC is running on forwarded port 6080 and DISPLAY=:99 is set.")
-        print("Each selected opportunity may open in the live browser session.")
+        print("Each selected solicitation may open in the live browser session.")
+        print("Sources sought/RFI items do not need browser download unless manually reviewed.")
         print("")
 
     results = []
