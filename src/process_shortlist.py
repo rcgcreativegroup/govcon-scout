@@ -1,5 +1,6 @@
 import argparse
 import csv
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -9,6 +10,8 @@ from pathlib import Path
 DEFAULT_CSV_PATH = "exports/govcon_scout_opportunities_latest.csv"
 DEFAULT_BATCH_REPORT_DIR = "reports/batch_runs"
 DEFAULT_AUTH_STATE = "auth.json"
+NOVNC_CHECK_SCRIPT = "scripts/novnc_check.sh"
+LIVE_INFRASTRUCTURE_EXIT_CODE = 86
 
 
 EARLY_STAGE_KEYWORDS = [
@@ -99,6 +102,46 @@ def auth_ready(auth_state):
     ])
 
     return result == 0
+
+
+def live_environment_ready():
+    if not os.environ.get("DISPLAY"):
+        print("")
+        print("DISPLAY is not set, so live noVNC processing cannot start.")
+        print("")
+        print("Reset the live desktop with:")
+        print("")
+        print("  scripts/novnc_reset.sh")
+        print("  export DISPLAY=:99")
+        print("")
+        return False
+
+    check_script = Path(NOVNC_CHECK_SCRIPT)
+
+    if not check_script.exists():
+        print("")
+        print(f"Missing noVNC check script: {NOVNC_CHECK_SCRIPT}")
+        print("")
+        return False
+
+    print("")
+    print("Checking live noVNC environment before batch processing...")
+    print("")
+
+    result = subprocess.run(["bash", str(check_script)])
+
+    if result.returncode == 0:
+        return True
+
+    print("")
+    print("Stopping batch before processing because noVNC is not ready.")
+    print("No manual-review reports were created for this infrastructure failure.")
+    print("")
+    return False
+
+
+def live_infrastructure_failed(return_code):
+    return return_code == LIVE_INFRASTRUCTURE_EXIT_CODE
 
 
 def already_processed(notice_id):
@@ -413,6 +456,9 @@ def process_solicitation_candidate(row, args):
     if return_code == 0:
         status = "Processed — Solicitation"
         output = f"reports/opportunity_reviews/{notice_id}_compliance_matrix.md"
+    elif args.live and live_infrastructure_failed(return_code):
+        status = "Live Infrastructure Failure"
+        output = "scripts/novnc_check.sh"
     else:
         status = "Manual Review Required"
         output = f"reports/manual_review/{notice_id}_manual_review.md"
@@ -653,7 +699,10 @@ def main():
             f"{row.get('title')}"
         )
 
-        needs_saved_auth = False
+    needs_saved_auth = False
+
+    if args.live and not live_environment_ready():
+        sys.exit(LIVE_INFRASTRUCTURE_EXIT_CODE)
 
     if not args.live and not args.skip_auth_check:
         for row in candidates:

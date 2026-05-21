@@ -14,6 +14,8 @@ from playwright.sync_api import sync_playwright
 
 DEFAULT_DOWNLOADS_DIR = "downloads"
 DEFAULT_PROFILE_DIR = ".browser/live_sam_profile"
+NOVNC_CHECK_SCRIPT = "scripts/novnc_check.sh"
+LIVE_INFRASTRUCTURE_EXIT_CODE = 86
 
 BID_FILE_EXTENSIONS = {
     ".pdf",
@@ -156,6 +158,26 @@ def print_novnc_help():
     print("  x11vnc -display :99 -nopw -listen localhost -xkb -forever >/tmp/x11vnc.log 2>&1 &")
     print("  websockify --web=/usr/share/novnc/ 6080 localhost:5900 >/tmp/novnc.log 2>&1 &")
     print("")
+    print("Or run:")
+    print("")
+    print("  scripts/novnc_reset.sh")
+    print("")
+
+
+def live_environment_ready():
+    if not os.environ.get("DISPLAY"):
+        print("DISPLAY is not set.")
+        print_novnc_help()
+        return False
+
+    check_script = Path(NOVNC_CHECK_SCRIPT)
+
+    if not check_script.exists():
+        print(f"Missing noVNC check script: {NOVNC_CHECK_SCRIPT}")
+        return False
+
+    result = subprocess.run(["bash", str(check_script)])
+    return result.returncode == 0
 
 
 def save_page_debug(page, downloads_dir, notice_id, label):
@@ -482,10 +504,8 @@ def run_analysis_pipeline(notice_id, downloads_dir):
 
 
 def process_live(notice_id, url, downloads_dir, profile_dir, skip_analysis):
-    if not os.environ.get("DISPLAY"):
-        print("DISPLAY is not set.")
-        print_novnc_help()
-        sys.exit(1)
+    if not live_environment_ready():
+        sys.exit(LIVE_INFRASTRUCTURE_EXIT_CODE)
 
     notice_id = make_safe_folder_name(notice_id)
     ensure_dir(Path(downloads_dir) / notice_id)
