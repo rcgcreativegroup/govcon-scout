@@ -1,29 +1,24 @@
+# Secrets and local sessions
 auth.json
-.browser/
-debug/
-cache/
-__pycache__/
-*.pyc
-downloads/_debug/
-sam-session-test.png
-
-# Secrets / local sessions
 .env
 .env.*
-auth.json
 .browser/
 
-# Python / caches / debug
+# Python caches
+.venv/
 __pycache__/
 *.pyc
+
+# Local caches and debug output
 cache/
 debug/
 downloads/_debug/
 sam-session-test.png
+sam-profile-test.png
+sam-profile-login-check.png
 
 # Node dependencies
 node_modules/
 
 # Optional noisy generated timestamp files
 reports/*_2026-05-20_*.md
-sam-profile-login-check.png

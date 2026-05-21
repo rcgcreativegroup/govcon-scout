@@ -456,7 +456,7 @@ def unzip_downloads(notice_id, downloads_dir):
             print(f"Bad ZIP skipped: {zip_path}")
 
 
-def run_command(command):
+def run_command(command, stop_on_error=True):
     print("")
     print("Running:")
     print(" ".join(command))
@@ -466,7 +466,10 @@ def run_command(command):
 
     if result.returncode != 0:
         print(f"Command failed: {' '.join(command)}")
-        sys.exit(result.returncode)
+        if stop_on_error:
+            sys.exit(result.returncode)
+
+    return result.returncode
 
 
 def run_analysis_pipeline(notice_id, downloads_dir):
@@ -501,6 +504,15 @@ def run_analysis_pipeline(notice_id, downloads_dir):
         "--notice-id",
         notice_id,
     ])
+
+    run_command([
+        sys.executable,
+        "src/pricing_schedule_extractor.py",
+        "--notice-id",
+        notice_id,
+        "--downloads-dir",
+        downloads_dir,
+    ], stop_on_error=False)
 
 
 def process_live(notice_id, url, downloads_dir, profile_dir, skip_analysis):
@@ -554,11 +566,7 @@ def process_live(notice_id, url, downloads_dir, profile_dir, skip_analysis):
             print("Continuing anyway because SAM.gov may expose public opportunity links.")
             print("If download fails, use the debug screenshot to verify login/page state.")
             print("")
-            save_page_debug(page,
-                            
-
-
- downloads_dir, notice_id, "possible_logged_out")
+            save_page_debug(page, downloads_dir, notice_id, "possible_logged_out")
         wait_for_page(page)
         save_page_debug(page, downloads_dir, notice_id, "sam")
 

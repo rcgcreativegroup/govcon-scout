@@ -1,0 +1,102 @@
+# GovCon Scout Triage Board
+
+**Generated:** 2026-05-21 18:02:03
+**Source CSV:** `exports/govcon_scout_opportunities_latest.csv`
+**Latest Batch Report:** `reports/batch_runs/process_shortlist_2026-05-21_1745.md`
+
+## Summary
+
+- **Manual Review - No Link/No Download:** 1
+- **Manual Review - Retry Candidate:** 7
+- **Pass/Not Ready:** 35
+- **Processed Successfully:** 2
+- **Sources Sought Plan Generated:** 5
+
+## Pursue Now
+
+| Notice | Status | Fit | Prime | Deadline | Action | Output |
+|---|---:|---:|---:|---|---|---|
+| HE125426QE041 - Fort Campbell Integrated Pest Management (IPM) Services | Processed Successfully | 65 | 65 | 2026-06-02 03:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/HE125426QE041_compliance_matrix.md) |
+| W912BV26QA059 - Tulsa Resident Office Janitorial Services | Processed Successfully | 59 | 59 | 2026-06-08 02:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/W912BV26QA059_compliance_matrix.md) |
+| FA254926EISTRFI - STARCOM Delt 1 Enlisted Initial Skills Training | Sources Sought Plan Generated | 59 | 59 | 2026-06-02 03:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/FA254926EISTRFI_sources_sought_plan.md) |
+| NBSFS_RFI_0001 - NBSFS Server and Services Modernization | Sources Sought Plan Generated | 57 | 57 | 2026-06-01 12:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/NBSFS_RFI_0001_sources_sought_plan.md) |
+| FA452826KH0001 - Virtual Environment Trainer | Sources Sought Plan Generated | 57 | 57 | 2026-05-29 12:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/FA452826KH0001_sources_sought_plan.md) |
+
+## Processed Successfully
+
+| Notice | Status | Fit | Prime | Deadline | Action | Output |
+|---|---:|---:|---:|---|---|---|
+| HE125426QE041 - Fort Campbell Integrated Pest Management (IPM) Services | Processed Successfully | 65 | 65 | 2026-06-02 03:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/HE125426QE041_compliance_matrix.md) |
+| W912BV26QA059 - Tulsa Resident Office Janitorial Services | Processed Successfully | 59 | 59 | 2026-06-08 02:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/W912BV26QA059_compliance_matrix.md) |
+
+## Sources Sought Plans Generated
+
+| Notice | Status | Fit | Prime | Deadline | Action | Output |
+|---|---:|---:|---:|---|---|---|
+| FA254926EISTRFI - STARCOM Delt 1 Enlisted Initial Skills Training | Sources Sought Plan Generated | 59 | 59 | 2026-06-02 03:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/FA254926EISTRFI_sources_sought_plan.md) |
+| NBSFS_RFI_0001 - NBSFS Server and Services Modernization | Sources Sought Plan Generated | 57 | 57 | 2026-06-01 12:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/NBSFS_RFI_0001_sources_sought_plan.md) |
+| FA452826KH0001 - Virtual Environment Trainer | Sources Sought Plan Generated | 57 | 57 | 2026-05-29 12:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/FA452826KH0001_sources_sought_plan.md) |
+| W9123826QA017 - Success Lake - Office Janitorial Services | Sources Sought Plan Generated | 57 | 57 | 2026-06-23 01:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/W9123826QA017_sources_sought_plan.md) |
+| 47QSSC-26-Q-0163 - Disposable Cups | Sources Sought Plan Generated | 57 | 57 | 2026-05-29 04:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/47QSSC-26-Q-0163_sources_sought_plan.md) |
+
+## Manual Review - No Link/No Download
+
+| Notice | Status | Fit | Prime | Deadline | Action | Output |
+|---|---:|---:|---:|---|---|---|
+| 89243326QFE000527 - F--RFQ Albany, OR Pest Control | Manual Review - No Link/No Download | 59 | 59 | 2026-06-01 02:00 PM CDT | Inspect SAM/debug files; classify text-only/no-bid or selector gap. | [open](reports/manual_review/89243326QFE000527_manual_review.md) |
+
+## Manual Review - Likely External Portal/No Attachment
+
+None.
+
+## Manual Review - Retry Candidate
+
+| Notice | Status | Fit | Prime | Deadline | Action | Output |
+|---|---:|---:|---:|---|---|---|
+| 12639526Q0148 - Janitorial Services for USDA, APHIS, PPQ in Avoca, NY | Manual Review - Retry Candidate | 59 | 59 | 2026-06-08 12:00 PM CDT | Retry live after confirming SAM.gov login; inspect debug screenshot. | [open](reports/manual_review/12639526Q0148_manual_review.md) |
+| 1240BD26Q0051 - Janitorial Services, Newport Ranger Station | Manual Review - Retry Candidate | 59 | 59 | 2026-06-10 03:00 PM CDT | Retry live after confirming SAM.gov login; inspect debug screenshot. | [open](reports/manual_review/1240BD26Q0051_manual_review.md) |
+| 75H71526Q00017 - Janitorial Services for the Indian Health Service, Lockport Service Unit | Manual Review - Retry Candidate | 59 | 59 | 2026-06-01 03:00 PM CDT | Retry live after confirming SAM.gov login; inspect debug screenshot. | [open](reports/manual_review/75H71526Q00017_manual_review.md) |
+| 1305M326Q0207 - JANITORIAL SERVICES AT NWS IN GRAND RAPIDS, MI | Manual Review - Retry Candidate | 59 | 59 | 2026-06-02 11:00 AM CDT | Retry live after confirming SAM.gov login; inspect debug screenshot. | [open](reports/manual_review/1305M326Q0207_manual_review.md) |
+| 140FS226Q0112 - S--NM VALLE DE ORO NWR JANITORIAL SERVICES | Manual Review - Retry Candidate | 59 | 59 | 2026-06-03 04:00 PM CDT | Retry live after confirming SAM.gov login; inspect debug screenshot. | [open](reports/manual_review/140FS226Q0112_manual_review.md) |
+| 140FS126Q0097 - CA-CA/NV FHC-JANITORIAL SERVICES | Manual Review - Retry Candidate | 59 | 59 | 2026-05-28 12:00 PM CDT | Retry live after confirming SAM.gov login; inspect debug screenshot. | [open](reports/manual_review/140FS126Q0097_manual_review.md) |
+| 127EAT26Q0061 - Amendment 1 - Grindstone Pest & Rodent Control Treatment Services, Mendocino NF | Manual Review - Retry Candidate | 59 | 59 | 2026-05-28 07:00 PM CDT | Retry live after confirming SAM.gov login; inspect debug screenshot. | [open](reports/manual_review/127EAT26Q0061_manual_review.md) |
+
+## Pass/Not Ready
+
+| Notice | Status | Fit | Prime | Deadline | Action | Output |
+|---|---:|---:|---:|---|---|---|
+| FA251826Q0001 - NNC A&AS Technical Rescue Trainings and Curriculum Development | Pass/Not Ready | 57 | 57 | 2026-06-10 01:00 PM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/FA251826Q0001.md) |
+| 127EAY26Q0064 - INF South Zone Districts Janitorial | Pass/Not Ready | 57 | 57 | 2026-06-04 07:00 PM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/127EAY26Q0064.md) |
+| 140L6226Q0011 - NHTIC JANITORIAL 2026 | Pass/Not Ready | 57 | 57 | 2026-06-03 03:00 PM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/140L6226Q0011.md) |
+| W912CN-26-Q-A011 - Termite Treatment & Fumigation Services | Pass/Not Ready | 57 | 57 | 2026-06-08 05:00 PM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/W912CN-26-Q-A011.md) |
+| W911YU26QA010 - Guam Army National Guard Publicity Assistant | Pass/Not Ready | 55 | 55 | 2026-06-10 10:00 PM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/W911YU26QA010.md) |
+| W911RX26RA004 - III Corps & Fort Hood Material Handling Equipment (MHE) | Pass/Not Ready | 55 | 55 | 2026-06-08 10:00 AM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/W911RX26RA004.md) |
+| 140P5326Q0027 - GRSM SVC CUSTODIAL CONTRACT | Pass/Not Ready | 55 | 55 | 2026-06-22 03:00 PM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/140P5326Q0027.md) |
+| FA461326Q1037 - PKB LCC Cleaning IDIQ (Service) | Pass/Not Ready | 55 | 55 | 2026-06-12 11:00 AM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/FA461326Q1037.md) |
+| 36C26126Q0680 - S207--Integrated Pest Management Services | Pass/Not Ready | 55 | 55 | 2026-06-01 12:00 PM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/36C26126Q0680.md) |
+| N0018926RD008 - U.S. Navy's Marketing and Advertising Program in support of the Commander, Navy Recruiting Command (CNRC). | Pass/Not Ready | 54 | 54 | 2026-06-05 02:00 PM CDT | Do not pursue until attachments/details are available. | [open](reports/analysis_packets/N0018926RD008.md) |
+| W911SG26QA036 - Crane and Rigger Support | Pass/Not Ready | 53 | 53 | 2026-06-15 11:30 AM CDT | Do not pursue until attachments/details are available. |  |
+| HQCWG9693132 - Custodial Services for Commissary and CDC at Osan AB | Pass/Not Ready | 53 | 53 | 2026-06-02 12:00 AM CDT | Do not pursue until attachments/details are available. |  |
+| PAN411-26-P-0000-028344 - AI-powered Mosquito Surveillance System | Pass/Not Ready | 53 | 53 | 2026-05-31 08:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| Sources_Sought_Pest_Control_Services_ZCCHC - Sources Sought-Pest Control Services for Zuni Comprehensive Community Health Center (ZCCHC) | Pass/Not Ready | 52 | 52 | 2026-05-26 04:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| 36C25926Q0484 - U099--Stryker ProCuity Bed Training | Pass/Not Ready | 51 | 51 | 2026-05-29 03:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| 140L0126Q0004 - Janitorial Services - Bureau of Land Management Fo | Pass/Not Ready | 51 | 51 | 2026-06-01 11:00 AM CDT | Do not pursue until attachments/details are available. |  |
+| 36C25726Q0508 - Amarillo Pest Management | Pass/Not Ready | 51 | 51 | 2026-05-29 01:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| W911SD26QA073 - SYNOPSIS-Wireless Access Points at Camp Buckner | Pass/Not Ready | 50 | 50 | 2026-06-20 11:00 AM CDT | Do not pursue until attachments/details are available. |  |
+| N0018926RW021 - NCIS CYBER SECURITY REQUIREMENT | Pass/Not Ready | 50 | 50 | 2026-05-28 04:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| PSC_HPST_SVCS_RFI - REQUEST FOR INFORMATION (RFI) - US Coast Guard Polar Security Cutter (PSC) Human Performance Support and Training (HPS&T) System Technical Support Services | Pass/Not Ready | 50 | 50 | 2026-05-27 12:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| 1305M226Q0114 - S--Janitorial services contract for NOAA DRC | Pass/Not Ready | 50 | 50 | 2026-05-25 10:00 AM CDT | Do not pursue until attachments/details are available. |  |
+| 127EAY26Q0068 - Angeles National Forest Pest Control | Pass/Not Ready | 50 | 50 | 2026-05-27 07:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| W9124326QA003 - NEARNG Targeted Advertising with AI Capabilities | Pass/Not Ready | 49 | 49 | 2026-06-22 11:00 AM CDT | Do not pursue until attachments/details are available. |  |
+| M9549426R0019 - Insider Threat Monitoring Tool | Pass/Not Ready | 49 | 49 | 2026-05-29 09:00 AM CDT | Do not pursue until attachments/details are available. |  |
+| 36C10B26Q0436 - DA01--VA OIT BAM Product Line Appeals Modernization - RFI | Pass/Not Ready | 49 | 49 | 2026-05-29 12:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| RFI-GMR-MAY-2026 - Gateway Mission Router (GMR) | Pass/Not Ready | 49 | 49 | 2026-05-29 03:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| W90VN926QA035 - Training Class Academy (Fire Officer III, Fire Instructor III, and Fire Officer IV Certification) | Pass/Not Ready | 49 | 49 | 2026-05-28 01:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| FEBCC - Continuing Legal Education (CLE) | Pass/Not Ready | 49 | 49 | 2026-06-05 04:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| PR15819016 - Contracting of certification services for 17 Polygraph Examiners and the Establishment and Accreditation of a Vetting Training Center under American Polygraph Association (APA) Standards | Pass/Not Ready | 49 | 49 | 2026-06-02 05:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| N0018926QD064 - Conference Services - N8 Industry Day | Pass/Not Ready | 49 | 49 | 2026-05-27 11:00 AM CDT | Do not pursue until attachments/details are available. |  |
+| 75N99026R00072 - Janitorial Services-NIEHS at RTP | Pass/Not Ready | 49 | 49 | 2026-06-18 01:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| W912HY26RA018 - USACE Corpus Christi Resident Office Janitorial and Lawn Maintenance | Pass/Not Ready | 49 | 49 | 2026-06-08 02:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| 19SF5026Q0028 - Janitorial Services | Pass/Not Ready | 49 | 49 | 2026-06-26 04:00 PM CDT | Do not pursue until attachments/details are available. |  |
+| 140P1426Q0074 - CAVE: TERMITE BAIT STATIONS | Pass/Not Ready | 49 | 49 | 2026-06-08 11:00 AM CDT | Do not pursue until attachments/details are available. |  |
+| 127EAY26Q0060 - Monterey Ranger District Janitorial | Pass/Not Ready | 48 | 48 | 2026-05-25 04:00 PM CDT | Do not pursue until attachments/details are available. |  |

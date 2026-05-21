@@ -324,7 +324,7 @@ def process_sources_sought_candidate(row, args):
     url = safe_text(row.get("ui_link"))
     title = safe_text(row.get("title"))
 
-    if sources_sought_processed(notice_id) and not args.force and not args.retry_manual:
+    if sources_sought_processed(notice_id) and not args.force:
         print("")
         print(f"Skipping already planned sources sought/RFI opportunity: {notice_id}")
         print("")
@@ -375,7 +375,7 @@ def process_solicitation_candidate(row, args):
     url = safe_text(row.get("ui_link"))
     title = safe_text(row.get("title"))
 
-    if already_processed(notice_id) and pricing_processed(notice_id) and not args.force:
+    if already_processed(notice_id) and not args.force:
         print("")
         print(f"Skipping already fully processed solicitation: {notice_id}")
         print("")
@@ -717,7 +717,7 @@ def main():
             if route == "sources_sought":
                 continue
 
-            if already_processed(notice_id) and pricing_processed(notice_id) and not args.force:
+            if already_processed(notice_id) and not args.force:
                 continue
 
             if manual_review_exists(notice_id) and not args.force and not args.retry_manual:

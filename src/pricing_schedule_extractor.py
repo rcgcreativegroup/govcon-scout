@@ -3,7 +3,10 @@ import csv
 import re
 from pathlib import Path
 
-import openpyxl
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
 
 
 DEFAULT_DOWNLOADS_DIR = "downloads"
@@ -290,6 +293,7 @@ def get_col(row, column_map, key):
 
 def extract_pricing_line(row, column_map):
     description = get_col(row, column_map, "description")
+    formulas = [cell for cell in row if cell.startswith("=")]
 
     if not description:
         non_empty = [cell for cell in row if cell]
@@ -303,6 +307,7 @@ def extract_pricing_line(row, column_map):
         "unit": get_col(row, column_map, "unit"),
         "unit_price": get_col(row, column_map, "unit_price") or get_col(row, column_map, "price"),
         "total_price": get_col(row, column_map, "total_price"),
+        "formulas": " | ".join(formulas),
         "raw": " | ".join([cell for cell in row if cell]),
     }
 
@@ -332,6 +337,7 @@ def write_csv(notice_id, workbook_path, sheets, output_dir):
             "unit",
             "unit_price",
             "total_price",
+            "formulas",
             "raw",
         ]
 
@@ -415,13 +421,14 @@ def write_markdown(notice_id, opportunity, workbook_path, sheets, output_dir):
             lines.append("")
             continue
 
-        lines.append("| Period | CLIN | Description | Qty | Unit | Unit Price | Total |")
-        lines.append("|---|---|---|---:|---|---:|---:|")
+        lines.append("| Period | CLIN | Description | Qty | Unit | Unit Price | Total | Formulas |")
+        lines.append("|---|---|---|---:|---|---:|---:|---|")
 
         for line in sheet["pricing_lines"]:
             lines.append(
                 f"| {line['period']} | {line['clin']} | {line['description'].replace('|', '/')} | "
-                f"{line['quantity']} | {line['unit']} | {line['unit_price']} | {line['total_price']} |"
+                f"{line['quantity']} | {line['unit']} | {line['unit_price']} | {line['total_price']} | "
+                f"{line['formulas'].replace('|', '/')} |"
             )
 
         lines.append("")
@@ -444,6 +451,13 @@ def write_markdown(notice_id, opportunity, workbook_path, sheets, output_dir):
 def extract_pricing_schedule(notice_id, downloads_dir, output_dir, csv_path):
     notice_id = make_safe_name(notice_id)
     ensure_dir(output_dir)
+
+    if openpyxl is None:
+        print("")
+        print("openpyxl is not installed; skipping Excel pricing extraction.")
+        print("Install it with: pip install openpyxl")
+        print("")
+        return []
 
     workbooks = find_pricing_workbooks(notice_id, downloads_dir)
 
