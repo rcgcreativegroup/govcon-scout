@@ -1,0 +1,33 @@
+notice_id,workbook,sheet,period,clin,description,quantity,unit,unit_price,total_price,raw
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2026-6/30/2027,0001,Ant/Roach Treatment,2,Each,,=E6*G6,0001 | 7/1/2026-6/30/2027 | Ant/Roach Treatment | 2 | Each | 0 | =E6*G6
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2026-6/30/2027,0002,Field/Turf Treatment,12,Months,,=E7*G7,0002 | 7/1/2026-6/30/2027 | Field/Turf Treatment | 12 | Months | 0 | =E7*G7
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2026-6/30/2027,0003,Termite Treatment,1,Each,,=E8*G8,0003 | 7/1/2026-6/30/2027 | Termite Treatment | 1 | Each | 0 | =E8*G8
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2026-6/30/2027,0004,Wasp/Bee Treatment,6,Bimonthly,,=E9*G9,0004 | 7/1/2026-6/30/2027 | Wasp/Bee Treatment | 6 | Bimonthly | 0 | =E9*G9
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2026-6/30/2027,0005,Rodent/Small Animal Control,4,Each,,=E10*G10,0005 | 7/1/2026-6/30/2027 | Rodent/Small Animal Control | 4 | Each | 0 | =E10*G10
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,,,Base Period Total | =SUM(H6:H10),,Base Period Total,,=SUM(H6:H10),Base Period Total | =SUM(H6:H10)
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2027-6/30/2028,1001,Ant/Roach Treatment,2,Each,,=E12*G12,1001 | 7/1/2027-6/30/2028 | Ant/Roach Treatment | 2 | Each | 0 | =E12*G12
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2027-6/30/2028,1002,Field/Turf Treatment,12,Months,,=E13*G13,1002 | 7/1/2027-6/30/2028 | Field/Turf Treatment | 12 | Months | 0 | =E13*G13
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2027-6/30/2028,1003,Termite Treatment,1,Each,,=E14*G14,1003 | 7/1/2027-6/30/2028 | Termite Treatment | 1 | Each | 0 | =E14*G14
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2027-6/30/2028,1004,Wasp/Bee Treatment,6,Bimonthly,,=E15*G15,1004 | 7/1/2027-6/30/2028 | Wasp/Bee Treatment | 6 | Bimonthly | 0 | =E15*G15
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2027-6/30/2028,1005,Rodent/Small Animal Control,4,Each,,=E16*G16,1005 | 7/1/2027-6/30/2028 | Rodent/Small Animal Control | 4 | Each | 0 | =E16*G16
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,,,Option Period One Total | =SUM(H12:H16),,Option Period One Total,,=SUM(H12:H16),Option Period One Total | =SUM(H12:H16)
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2028-6/30/2029,2001,Ant/Roach Treatment,2,Each,,=E18*G18,2001 | 7/1/2028-6/30/2029 | Ant/Roach Treatment | 2 | Each | 0 | =E18*G18
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2028-6/30/2029,2002,Field/Turf Treatment,12,Months,,=E19*G19,2002 | 7/1/2028-6/30/2029 | Field/Turf Treatment | 12 | Months | 0 | =E19*G19
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2028-6/30/2029,2003,Termite Treatment,1,Each,,=E20*G20,2003 | 7/1/2028-6/30/2029 | Termite Treatment | 1 | Each | 0 | =E20*G20
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2028-6/30/2029,2004,Wasp/Bee Treatment,6,Bimonthly,,=E21*G21,2004 | 7/1/2028-6/30/2029 | Wasp/Bee Treatment | 6 | Bimonthly | 0 | =E21*G21
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2028-6/30/2029,2005,Rodent/Small Animal Control,4,Each,,=E22*G22,2005 | 7/1/2028-6/30/2029 | Rodent/Small Animal Control | 4 | Each | 0 | =E22*G22
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,,,Option Period Two Total | =SUM(H18:H22),,Option Period Two Total,,=SUM(H18:H22),Option Period Two Total | =SUM(H18:H22)
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2029-6/30/2030,3001,Ant/Roach Treatment,2,Each,,=E24*G24,3001 | 7/1/2029-6/30/2030 | Ant/Roach Treatment | 2 | Each | 0 | =E24*G24
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2029-6/30/2030,3002,Field/Turf Treatment,12,Months,,=E25*G25,3002 | 7/1/2029-6/30/2030 | Field/Turf Treatment | 12 | Months | 0 | =E25*G25
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2029-6/30/2030,3003,Termite Treatment,1,Each,,=E26*G26,3003 | 7/1/2029-6/30/2030 | Termite Treatment | 1 | Each | 0 | =E26*G26
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2029-6/30/2030,3004,Wasp/Bee Treatment,6,Bimonthly,,=E27*G27,3004 | 7/1/2029-6/30/2030 | Wasp/Bee Treatment | 6 | Bimonthly | 0 | =E27*G27
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2029-6/30/2030,3005,Rodent/Small Animal Control,4,Each,,=E28*G28,3005 | 7/1/2029-6/30/2030 | Rodent/Small Animal Control | 4 | Each | 0 | =E28*G28
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,,,Option Period Three Total | =SUM(H24:H28),,Option Period Three Total,,=SUM(H24:H28),Option Period Three Total | =SUM(H24:H28)
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2030-6/30/2031,4001,Ant/Roach Treatment,2,Each,,=E30*G30,4001 | 7/1/2030-6/30/2031 | Ant/Roach Treatment | 2 | Each | 0 | =E30*G30
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2030-6/30/2031,4002,Field/Turf Treatment,12,Months,,=E31*G31,4002 | 7/1/2030-6/30/2031 | Field/Turf Treatment | 12 | Months | 0 | =E31*G31
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2030-6/30/2031,4003,Termite Treatment,1,Each,,=E32*G32,4003 | 7/1/2030-6/30/2031 | Termite Treatment | 1 | Each | 0 | =E32*G32
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2030-6/30/2031,4004,Wasp/Bee Treatment,6,Bimonthly,,=E33*G33,4004 | 7/1/2030-6/30/2031 | Wasp/Bee Treatment | 6 | Bimonthly | 0 | =E33*G33
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2030-6/30/2031,4005,Rodent/Small Animal Control,4,Each,,=E34*G34,4005 | 7/1/2030-6/30/2031 | Rodent/Small Animal Control | 4 | Each | 0 | =E34*G34
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,,,Option Period Four Total | =SUM(H30:H34),,Option Period Four Total,,=SUM(H30:H34),Option Period Four Total | =SUM(H30:H34)
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,7/1/2031-12/31/2031,5000,Option to Extend Services,6,Months,,=E36*G36,5000 | 7/1/2031-12/31/2031 | Option to Extend Services | 6 | Months | 0 | =E36*G36
+HE125426QE041,ATT_4__Pricing_Schedule.xlsx,Sheet1,,,Contract Total | =H11+H17+H23+H29+H35+H36,,Contract Total,,=H11+H17+H23+H29+H35+H36,Contract Total | =H11+H17+H23+H29+H35+H36
