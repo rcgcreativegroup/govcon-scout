@@ -228,10 +228,30 @@ def process_opportunity(args):
     if local_file_count == 0:
         print("")
         print("No local files were found after download/unzip.")
+        print("Generating manual-review report before stopping.")
+        print("")
+
+        run_command([
+            sys.executable,
+            "src/manual_review_report.py",
+            "--notice-id",
+            notice_id,
+            "--url",
+            url,
+            "--reason",
+            "No local files found after download/unzip.",
+            "--details",
+            "GovCon Scout attempted browser download and ZIP extraction, but no local solicitation files were available for document extraction.",
+            "--downloads-dir",
+            args.downloads_dir,
+        ], stop_on_error=False)
+
+        print("")
         print("Stopping before extraction and analysis.")
         print("")
         print("Check:")
         print(f"- downloads folder: {Path(args.downloads_dir) / notice_id}")
+        print("- reports/manual_review/")
         print("- downloads/_debug screenshots and HTML")
         print("- whether SAM.gov/PIEE session expired")
         print("")
