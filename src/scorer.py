@@ -822,6 +822,164 @@ def detect_subcontracting_check(opportunity_text, set_aside_text, staffing_info)
     }
 
 
+def detect_capability_control_profile(opportunity, matched_lane, opportunity_text):
+    naics = get_opportunity_naics(opportunity)
+    psc = normalize_text(opportunity.get("psc_code") or opportunity.get("psc") or "")
+    text = normalize_text(opportunity_text)
+
+    routine_lanes = {
+        "janitorial_facility_support",
+        "pest_control",
+        "facility_supplies_distribution",
+        "trucking_transportation",
+    }
+
+    lane_aliases = {
+        "ai_automation": "ai_technology_training",
+        "training_documentation": "ai_technology_training",
+        "events_video": "marketing_communications",
+        "janitorial_facility_support": "janitorial",
+        "facility_supplies_distribution": "commodities",
+    }
+
+    naics_lanes = {
+        "541613": "marketing_communications",
+        "541810": "marketing_communications",
+        "541820": "marketing_communications",
+        "541512": "ai_technology_training",
+        "611430": "ai_technology_training",
+        "541430": "ai_technology_training",
+        "561720": "janitorial",
+        "561710": "pest_control",
+        "484110": "trucking_transportation",
+        "484121": "trucking_transportation",
+        "484122": "trucking_transportation",
+        "484220": "trucking_transportation",
+        "484230": "trucking_transportation",
+        "561612": "security_services",
+        "423850": "commodities",
+        "424120": "commodities",
+        "424130": "commodities",
+        "424990": "commodities",
+        "423990": "commodities",
+        "236220": "construction",
+        "238160": "roofing_hvac_trades",
+        "238220": "roofing_hvac_trades",
+    }
+
+    base_lane = lane_aliases.get(matched_lane) or (matched_lane if matched_lane not in ["unknown", ""] else "") or naics_lanes.get(naics) or "unknown"
+    if base_lane not in {
+        "marketing_communications",
+        "ai_technology_training",
+        "janitorial",
+        "pest_control",
+        "trucking_transportation",
+        "towing_hauling",
+        "facilities_services",
+        "roofing_hvac_trades",
+        "security_services",
+        "commodities",
+        "construction",
+        "medical_scientific_specialized",
+        "unknown",
+    }:
+        if "facility" in base_lane:
+            base_lane = "facilities_services"
+        else:
+            base_lane = "unknown" if matched_lane == "unknown" else base_lane
+
+    commodity_terms = [
+        "toothpaste", "office supplies", "cleaning supplies", "paper goods",
+        "trash bags", "soap", "disposable", "uniform", "clothing", "equipment",
+    ]
+    security_terms = ["armed guard", "unarmed guard", "security guard", "protective services"]
+    hazmat_terms = ["hazmat", "hazardous material", "tank hauling", "tanker", "explosive", "special endorsement"]
+    regulated_terms = [
+        "medical", "mortuary", "body removal", "human remains", "hazmat remediation",
+        "nuclear", "radiological", "laboratory instrument", "clearance required",
+        "top secret", "secret clearance", "clinical", "physician", "nurse",
+    ]
+
+    if any(term in text for term in commodity_terms) or matched_lane == "facility_supplies_distribution":
+        base_lane = "commodities"
+
+    if any(term in text for term in security_terms):
+        base_lane = "security_services"
+
+    if any(term in text for term in regulated_terms):
+        base_lane = "medical_scientific_specialized"
+
+    if any(term in text for term in hazmat_terms):
+        specialization_level = "highly_specialized_or_regulated" if "hazmat" in text else "moderately_specialized"
+        fulfillment_path = "prime_with_qualified_subcontractor"
+        subcontractor_feasibility = "specialized_required"
+        prime_control_risk = "high" if specialization_level == "highly_specialized_or_regulated" else "medium"
+    elif base_lane == "medical_scientific_specialized":
+        specialization_level = "highly_specialized_or_regulated"
+        fulfillment_path = "teaming_only"
+        subcontractor_feasibility = "rare_or_highly_regulated"
+        prime_control_risk = "high"
+    elif base_lane == "security_services":
+        specialization_level = "moderately_specialized"
+        fulfillment_path = "prime_with_qualified_subcontractor"
+        subcontractor_feasibility = "moderate_to_source"
+        prime_control_risk = "medium"
+    elif base_lane == "commodities":
+        specialization_level = "routine_commercial"
+        fulfillment_path = "commodity_sourcing"
+        subcontractor_feasibility = "easy_to_source"
+        prime_control_risk = "low"
+    elif matched_lane in ["marketing_communications", "ai_automation", "training_documentation", "events_video"]:
+        specialization_level = "moderately_specialized" if matched_lane in ["ai_automation", "training_documentation"] else "routine_commercial"
+        fulfillment_path = "direct_prime"
+        subcontractor_feasibility = "easy_to_source"
+        prime_control_risk = "low"
+    elif matched_lane in routine_lanes or base_lane in ["janitorial", "pest_control", "trucking_transportation", "towing_hauling", "roofing_hvac_trades", "facilities_services"]:
+        specialization_level = "routine_commercial"
+        fulfillment_path = "prime_with_subcontractor"
+        subcontractor_feasibility = "easy_to_source" if base_lane in ["janitorial", "pest_control", "commodities"] else "moderate_to_source"
+        prime_control_risk = "low" if subcontractor_feasibility == "easy_to_source" else "medium"
+    elif matched_lane == "unknown":
+        specialization_level = "unknown"
+        fulfillment_path = "manual_review"
+        subcontractor_feasibility = "unknown"
+        prime_control_risk = "high"
+    else:
+        specialization_level = "moderately_specialized"
+        fulfillment_path = "prime_with_subcontractor"
+        subcontractor_feasibility = "moderate_to_source"
+        prime_control_risk = "medium"
+
+    if psc.startswith("Q") or psc.startswith("A"):
+        specialization_level = "highly_specialized_or_regulated"
+        subcontractor_feasibility = "rare_or_highly_regulated"
+        prime_control_risk = "high"
+        fulfillment_path = "teaming_only"
+
+    recommended_action = ""
+    if base_lane == "security_services":
+        recommended_action = "Verify licensing, insurance, supervision requirements, and local/state rules before bid/no-bid."
+    elif specialization_level == "highly_specialized_or_regulated":
+        recommended_action = "Do not bid until a qualified performer or supplier is identified and validated."
+    elif fulfillment_path == "commodity_sourcing":
+        recommended_action = "Validate supplier availability, delivery timing, specs, and margin before quote."
+    elif fulfillment_path in ["prime_with_subcontractor", "prime_with_qualified_subcontractor"]:
+        recommended_action = "Validate subcontractor availability, licensing/insurance, pricing, and limitations-on-subcontracting compliance."
+    elif fulfillment_path == "direct_prime":
+        recommended_action = "Review scope, past performance fit, and staffing plan for direct prime response."
+    else:
+        recommended_action = "Manual review needed to determine sourcing, teaming, or pass."
+
+    return {
+        "base_lane": base_lane,
+        "specialization_level": specialization_level,
+        "fulfillment_path": fulfillment_path,
+        "subcontractor_feasibility": subcontractor_feasibility,
+        "prime_control_risk": prime_control_risk,
+        "prime_control_recommended_action": recommended_action,
+    }
+
+
 def company_is_verified_sdvob(company_profile):
     ownership = " ".join(company_profile.get("ownership", []))
     ownership = normalize_text(ownership)
@@ -919,8 +1077,9 @@ def detect_best_lane(opportunity, company_profile, search_profiles):
     return best_lane_name, best_lane_data["reasons"], best_lane_data["score"]
 
 
-def calculate_prime_reality_score(score, opportunity, staffing_info, evaluation_method, deadline_status):
+def calculate_prime_reality_score(score, opportunity, staffing_info, evaluation_method, deadline_status, control_profile=None):
     prime_score = score
+    control_profile = control_profile or {}
 
     if opportunity.get("set_aside_hard_gate") == "Yes":
         return 0
@@ -928,16 +1087,19 @@ def calculate_prime_reality_score(score, opportunity, staffing_info, evaluation_
     if opportunity.get("notice_actionability") != "actionable":
         return 0
 
+    prime_control_risk = control_profile.get("prime_control_risk")
+    fulfillment_path = control_profile.get("fulfillment_path")
+
     if staffing_info.get("performance_location_risk") == "out_of_area_requires_partner":
-        prime_score -= 35
+        prime_score -= 12 if fulfillment_path in ["prime_with_subcontractor", "prime_with_qualified_subcontractor"] else 35
     elif staffing_info.get("performance_location_risk") == "on_site_required":
-        prime_score -= 20
+        prime_score -= 8 if fulfillment_path in ["prime_with_subcontractor", "prime_with_qualified_subcontractor"] else 20
 
     if staffing_info.get("telework_ambiguity_flag") == "Yes":
         prime_score -= 10
 
     if staffing_info.get("local_staffing_dependency") == "Yes":
-        prime_score -= 15
+        prime_score -= 5 if fulfillment_path in ["prime_with_subcontractor", "prime_with_qualified_subcontractor"] else 15
 
     if evaluation_method == "LPTA":
         prime_score -= 5
@@ -950,6 +1112,20 @@ def calculate_prime_reality_score(score, opportunity, staffing_info, evaluation_
 
     if opportunity.get("scientific_domain_complexity_flag") == "Yes":
         prime_score -= 25
+
+    if prime_control_risk == "medium":
+        prime_score -= 5
+    elif prime_control_risk == "high":
+        prime_score -= 25
+
+    if fulfillment_path == "commodity_sourcing":
+        prime_score += 5
+    elif fulfillment_path == "teaming_only":
+        prime_score -= 35
+    elif fulfillment_path == "manual_review":
+        prime_score -= 15
+    elif fulfillment_path in ["prime_with_subcontractor", "prime_with_qualified_subcontractor"]:
+        prime_score += 5
 
     if opportunity.get("team_lock_alert") == "Yes":
         prime_score -= 10
@@ -993,7 +1169,9 @@ def calculate_compliance_risk(opportunity):
     return "Low"
 
 
-def build_conditional_recommendation(opportunity, score, prime_reality_score, staffing_info):
+def build_conditional_recommendation(opportunity, score, prime_reality_score, staffing_info, control_profile=None):
+    control_profile = control_profile or {}
+
     if opportunity.get("notice_actionability") == "awarded_market_intel":
         return "Market Intelligence Only — Already Awarded"
 
@@ -1006,11 +1184,32 @@ def build_conditional_recommendation(opportunity, score, prime_reality_score, st
     if opportunity.get("set_aside_hard_gate") == "Yes":
         return "Teaming/Subcontractor Target — Prime blocked by set-aside"
 
+    fulfillment_path = control_profile.get("fulfillment_path")
+    prime_control_risk = control_profile.get("prime_control_risk")
+
+    if fulfillment_path == "pass":
+        return "Pass — No reasonable fulfillment path"
+
+    if fulfillment_path == "teaming_only":
+        return "Teaming Only — Validate qualified partner before pursuit"
+
+    if fulfillment_path == "commodity_sourcing":
+        return "Sourcing Candidate — Validate supplier, specs, delivery, and margin"
+
+    if fulfillment_path == "prime_with_qualified_subcontractor":
+        return "Conditional Pursue — Qualified subcontractor required"
+
+    if fulfillment_path == "prime_with_subcontractor":
+        return "Prime Candidate — Subcontractor-managed fulfillment"
+
     if staffing_info.get("performance_location_risk") == "out_of_area_requires_partner":
         return "Conditional Pursue — Local subcontractor/employee required"
 
     if staffing_info.get("telework_ambiguity_flag") == "Yes":
         return "Conditional Pursue — RFI needed to clarify on-site vs telework"
+
+    if prime_control_risk == "high":
+        return "Manual Review — High prime control risk"
 
     if prime_reality_score >= 70:
         return "Prime Candidate"
@@ -1148,6 +1347,16 @@ def score_opportunity(opportunity, company_profile, search_profiles):
     step1_info = detect_step1_deadline(opportunity_text)
     subcontractor_role_info = detect_subcontractor_role_classifier(primary_text)
     subcontracting_info = detect_subcontracting_check(opportunity_text, set_aside_text, staffing_info)
+    control_profile = detect_capability_control_profile(
+        opportunity=opportunity,
+        matched_lane=matched_lane,
+        opportunity_text=opportunity_text,
+    )
+
+    if hard_gate_info["set_aside_hard_gate"] == "Yes":
+        control_profile["fulfillment_path"] = "teaming_only"
+        control_profile["prime_control_risk"] = "high"
+        control_profile["prime_control_recommended_action"] = "Prime eligibility appears blocked; identify an eligible prime or similarly situated teaming partner before pursuing."
 
     opportunity["evaluation_method"] = evaluation_method
     opportunity["submission_method"] = submission_method
@@ -1163,6 +1372,7 @@ def score_opportunity(opportunity, company_profile, search_profiles):
     opportunity.update(step1_info)
     opportunity.update(subcontractor_role_info)
     opportunity.update(subcontracting_info)
+    opportunity.update(control_profile)
 
     if opportunity["notice_actionability"] == "awarded_market_intel":
         reasons.append("Award Notice detected — exclude from pursuit report and use for awards intelligence")
@@ -1190,6 +1400,13 @@ def score_opportunity(opportunity, company_profile, search_profiles):
 
     if subcontracting_info["small_business_subcontracting_check"] == "Yes":
         reasons.append(subcontracting_info["subcontracting_note"])
+
+    reasons.append(
+        "Prime-control profile: "
+        f"{control_profile['base_lane']} / {control_profile['specialization_level']} / "
+        f"{control_profile['fulfillment_path']} / subcontractor feasibility "
+        f"{control_profile['subcontractor_feasibility']} / control risk {control_profile['prime_control_risk']}"
+    )
 
     if prime_case_info["prime_case_report_required"] == "Yes":
         reasons.append(prime_case_info["prime_case_report_note"])
@@ -1232,6 +1449,7 @@ def score_opportunity(opportunity, company_profile, search_profiles):
         staffing_info=staffing_info,
         evaluation_method=evaluation_method,
         deadline_status=opportunity["deadline_status"],
+        control_profile=control_profile,
     )
 
     opportunity["fit_score"] = score
@@ -1243,6 +1461,7 @@ def score_opportunity(opportunity, company_profile, search_profiles):
         score=score,
         prime_reality_score=prime_reality_score,
         staffing_info=staffing_info,
+        control_profile=control_profile,
     )
     opportunity["score_reasons"] = reasons
 

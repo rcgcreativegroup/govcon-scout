@@ -197,6 +197,8 @@ def action_recommendation(row, status):
         return "Inspect SAM/debug files; classify text-only/no-bid or selector gap."
     if yes(row.get("set_aside_hard_gate")):
         return "Pass for prime; consider teaming only."
+    if safe_text(row.get("prime_control_recommended_action")):
+        return safe_text(row.get("prime_control_recommended_action"))
     if not yes(row.get("ready_for_bid_no_bid_analysis")):
         return "Do not pursue until attachments/details are available."
     return "Review manually before spending more automation time."
@@ -239,6 +241,9 @@ def board_item(row, batch_statuses):
         "fit": score_int(row.get("fit_score")),
         "prime": score_int(row.get("prime_reality_score")),
         "lane": safe_text(row.get("matched_lane")),
+        "base_lane": safe_text(row.get("base_lane")),
+        "fulfillment_path": safe_text(row.get("fulfillment_path")),
+        "prime_control_risk": safe_text(row.get("prime_control_risk")),
         "recommendation": safe_text(row.get("conditional_recommendation") or row.get("recommendation")),
         "set_aside": safe_text(row.get("set_aside")),
         "status": status,

@@ -103,6 +103,9 @@ def write_opportunity_block(lines, index, opp):
 
     lines.append(f"**Notice Actionability:** {opp.get('notice_actionability', 'Unknown')}")
     lines.append(f"**Matched Lane:** {format_lane_label(matched_lane)}")
+    lines.append(f"**Base Lane:** {opp.get('base_lane', 'unknown')}")
+    lines.append(f"**Fulfillment Path:** {opp.get('fulfillment_path', 'unknown')}")
+    lines.append(f"**Prime Control Risk:** {opp.get('prime_control_risk', 'unknown')}")
     lines.append(f"**Deadline Status:** {format_deadline_label(deadline_status)}")
 
     if days_until_deadline != "":
@@ -143,7 +146,15 @@ def write_opportunity_block(lines, index, opp):
     lines.append(f"- Team Lock Alert: {opp.get('team_lock_alert', 'Unknown')}")
     lines.append(f"- Step 1 Mandatory Flag: {opp.get('step1_mandatory_flag', 'Unknown')}")
     lines.append(f"- Scientific Domain Complexity: {opp.get('scientific_domain_complexity_flag', 'Unknown')}")
+    lines.append(f"- Specialization Level: {opp.get('specialization_level', 'Unknown')}")
+    lines.append(f"- Subcontractor Feasibility: {opp.get('subcontractor_feasibility', 'Unknown')}")
     lines.append("")
+
+    if opp.get("prime_control_recommended_action"):
+        lines.append("**Prime-Control Recommended Action:**")
+        lines.append("")
+        lines.append(opp.get("prime_control_recommended_action"))
+        lines.append("")
 
     if opp.get("subcontractor_role_classifier"):
         lines.append("**Possible Subcontractor Workshare:**")

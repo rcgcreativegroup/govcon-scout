@@ -9,6 +9,11 @@ PIPELINE_FIELDS = [
     "title",
     "agency",
     "matched_lane",
+    "base_lane",
+    "specialization_level",
+    "fulfillment_path",
+    "subcontractor_feasibility",
+    "prime_control_risk",
     "fit_score",
     "prime_reality_score",
     "recommendation",
@@ -76,6 +81,15 @@ def determine_status(opp):
     if opp.get("set_aside_hard_gate") == "Yes":
         return "Teaming Target"
 
+    if opp.get("fulfillment_path") == "commodity_sourcing":
+        return "Sourcing Review"
+
+    if opp.get("fulfillment_path") == "prime_with_qualified_subcontractor":
+        return "Subcontractor Validation"
+
+    if opp.get("fulfillment_path") == "teaming_only":
+        return "Teaming Target"
+
     if opp.get("rfi_needed") == "Yes":
         return "RFI Needed"
 
@@ -100,6 +114,9 @@ def determine_next_action(opp, status):
 
     if opp.get("set_aside_hard_gate") == "Yes":
         return "Identify eligible prime or similarly situated teaming partner before pursuing."
+
+    if opp.get("prime_control_recommended_action"):
+        return safe_text(opp.get("prime_control_recommended_action"))
 
     if opp.get("rfi_needed") == "Yes":
         return "Draft RFI and confirm requirement before bid/no-bid."
@@ -132,6 +149,11 @@ def build_pipeline_row(opp, existing_row=None):
         "title": safe_text(opp.get("title")),
         "agency": safe_text(opp.get("department_ind_agency")),
         "matched_lane": safe_text(opp.get("matched_lane")),
+        "base_lane": safe_text(opp.get("base_lane")),
+        "specialization_level": safe_text(opp.get("specialization_level")),
+        "fulfillment_path": safe_text(opp.get("fulfillment_path")),
+        "subcontractor_feasibility": safe_text(opp.get("subcontractor_feasibility")),
+        "prime_control_risk": safe_text(opp.get("prime_control_risk")),
         "fit_score": safe_text(opp.get("fit_score")),
         "prime_reality_score": safe_text(opp.get("prime_reality_score")),
         "recommendation": safe_text(opp.get("recommendation")),

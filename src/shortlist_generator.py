@@ -99,6 +99,10 @@ def format_opportunity_summary(opp):
     lines.append(f"- **Notice ID:** {notice_id}")
     lines.append(f"- **Agency:** {agency}")
     lines.append(f"- **Matched Lane:** {lane}")
+    lines.append(f"- **Base Lane:** {safe_text(opp.get('base_lane', 'unknown'))}")
+    lines.append(f"- **Fulfillment Path:** {safe_text(opp.get('fulfillment_path', 'unknown'))}")
+    lines.append(f"- **Subcontractor Feasibility:** {safe_text(opp.get('subcontractor_feasibility', 'unknown'))}")
+    lines.append(f"- **Prime Control Risk:** {safe_text(opp.get('prime_control_risk', 'unknown'))}")
     lines.append(f"- **Fit Score:** {fit_score}/100")
     lines.append(f"- **Prime Reality Score:** {prime_reality_score}/100")
     lines.append(f"- **Recommendation:** {recommendation}")
@@ -134,6 +138,9 @@ def format_opportunity_summary(opp):
 
     if opp.get("subcontractor_role_classifier"):
         lines.append(f"- **Possible Workshare:** {opp.get('subcontractor_role_classifier')}")
+
+    if opp.get("prime_control_recommended_action"):
+        lines.append(f"- **Prime-Control Action:** {opp.get('prime_control_recommended_action')}")
 
     if opp.get("rfi_recommendation"):
         lines.append(f"- **RFI Recommendation:** {opp.get('rfi_recommendation')}")
@@ -454,6 +461,11 @@ def generate_analysis_packets(scored_opportunities, output_dir="reports/analysis
             "step1_mandatory_flag",
             "scientific_domain_complexity_flag",
             "subcontractor_role_classifier",
+            "base_lane",
+            "specialization_level",
+            "fulfillment_path",
+            "subcontractor_feasibility",
+            "prime_control_risk",
         ]
 
         for field in flag_fields:
