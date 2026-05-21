@@ -170,6 +170,23 @@ def count_local_files(notice_id, downloads_dir):
     return len([path for path in folder.iterdir() if path.is_file()])
 
 
+def generate_manual_review_report(notice_id, url, downloads_dir, reason, details):
+    return run_command([
+        sys.executable,
+        "src/manual_review_report.py",
+        "--notice-id",
+        notice_id,
+        "--url",
+        url,
+        "--reason",
+        reason,
+        "--details",
+        details,
+        "--downloads-dir",
+        downloads_dir,
+    ], stop_on_error=False)
+
+
 def process_opportunity(args):
     notice_id = safe_text(args.notice_id)
     url = safe_text(args.url)
@@ -231,20 +248,16 @@ def process_opportunity(args):
         print("Generating manual-review report before stopping.")
         print("")
 
-        run_command([
-            sys.executable,
-            "src/manual_review_report.py",
-            "--notice-id",
-            notice_id,
-            "--url",
-            url,
-            "--reason",
-            "No local files found after download/unzip.",
-            "--details",
-            "GovCon Scout attempted browser download and ZIP extraction, but no local solicitation files were available for document extraction.",
-            "--downloads-dir",
-            args.downloads_dir,
-        ], stop_on_error=False)
+        generate_manual_review_report(
+            notice_id=notice_id,
+            url=url,
+            downloads_dir=args.downloads_dir,
+            reason="No local files found after download/unzip.",
+            details=(
+                "GovCon Scout attempted browser download and ZIP extraction, "
+                "but no local solicitation files were available for document extraction."
+            ),
+        )
 
         print("")
         print("Stopping before extraction and analysis.")
@@ -297,6 +310,16 @@ def process_opportunity(args):
             notice_id,
         ])
 
+    if not args.skip_pricing:
+        run_command([
+            sys.executable,
+            "src/pricing_schedule_extractor.py",
+            "--notice-id",
+            notice_id,
+            "--downloads-dir",
+            args.downloads_dir,
+        ], stop_on_error=False)
+
     print("")
     print("Opportunity processing complete.")
     print("")
@@ -307,6 +330,8 @@ def process_opportunity(args):
     print(f"- Bid/no-bid review: reports/opportunity_reviews/{notice_id}_bid_no_bid.md")
     print(f"- Decision report: reports/opportunity_reviews/{notice_id}_decision_report.md")
     print(f"- Compliance matrix: reports/opportunity_reviews/{notice_id}_compliance_matrix.md")
+    print(f"- Pricing schedule: reports/pricing/{notice_id}_pricing_schedule.md")
+    print(f"- Pricing table: reports/pricing/{notice_id}_pricing_table.csv")
     print("")
 
 
@@ -379,6 +404,12 @@ def parse_args():
         "--skip-compliance",
         action="store_true",
         help="Skip compliance matrix generation.",
+    )
+
+    parser.add_argument(
+        "--skip-pricing",
+        action="store_true",
+        help="Skip pricing schedule extraction.",
     )
 
     return parser.parse_args()
