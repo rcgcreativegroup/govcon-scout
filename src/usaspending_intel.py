@@ -25,10 +25,14 @@ CONTRACT_AWARD_TYPE_CODES = [
 
 FIELDS = [
     "Award ID",
+    "generated_unique_award_id",
+    "PIID",
     "Recipient Name",
     "Start Date",
     "End Date",
     "Award Amount",
+    "Total Obligation",
+    "Base and All Options Value",
     "Awarding Agency",
     "Awarding Sub Agency",
     "Award Type",
@@ -37,6 +41,28 @@ FIELDS = [
     "Description",
     "NAICS",
     "PSC",
+    "Place of Performance",
+]
+
+AWARD_CSV_FIELDS = [
+    "award_id",
+    "generated_unique_award_id",
+    "piid",
+    "award_type",
+    "recipient_name",
+    "awarding_agency",
+    "awarding_subagency",
+    "funding_agency",
+    "description",
+    "naics",
+    "psc",
+    "award_amount",
+    "total_obligation",
+    "period_of_performance_start_date",
+    "period_of_performance_current_end_date",
+    "base_and_all_options_value",
+    "place_of_performance",
+    "source_query",
 ]
 
 
@@ -152,44 +178,61 @@ def base_filters(lookback_years):
     }
 
 
-def build_queries(row, lookback_years):
-    naics = safe_text(row.get("naics_code"))
-    psc = safe_text(row.get("psc_code") or row.get("psc"))
-    agency = compact_agency_name(row.get("department_ind_agency") or row.get("agency"))
-    terms = keyword_terms(row)
+def agency_filter(agency):
+    return [{
+        "type": "awarding",
+        "tier": "toptier",
+        "name": agency,
+    }]
+
+
+def add_keywords(filters, terms):
+    if terms:
+        filters["keywords"] = terms
+
+
+def build_queries(row, lookback_years, overrides=None):
+    overrides = overrides or {}
+    naics = safe_text(overrides.get("naics") or row.get("naics_code"))
+    psc = safe_text(overrides.get("psc") or row.get("psc_code") or row.get("psc"))
+    agency = compact_agency_name(overrides.get("agency") or row.get("department_ind_agency") or row.get("agency"))
+    terms = overrides.get("keywords") or keyword_terms(row)
 
     queries = []
 
-    if naics and psc:
+    if naics and agency:
         filters = base_filters(lookback_years)
         filters["naics_codes"] = [naics]
-        filters["psc_codes"] = [psc]
-        queries.append(("Query A - NAICS + PSC", filters))
+        filters["agencies"] = agency_filter(agency)
+        queries.append(("Query A - NAICS + agency", filters))
 
-    if naics:
-        filters = base_filters(lookback_years)
-        filters["naics_codes"] = [naics]
-        queries.append(("Query B - NAICS only", filters))
-
-    if psc:
+    if psc and agency:
         filters = base_filters(lookback_years)
         filters["psc_codes"] = [psc]
-        queries.append(("Query C - PSC only", filters))
+        filters["agencies"] = agency_filter(agency)
+        queries.append(("Query B - PSC + agency", filters))
 
-    if terms:
-        filters = base_filters(lookback_years)
-        filters["keywords"] = terms
-        queries.append(("Query D - title/core keyword search", filters))
-
-    if agency and naics:
+    if naics and terms:
         filters = base_filters(lookback_years)
         filters["naics_codes"] = [naics]
-        filters["agencies"] = [{
-            "type": "awarding",
-            "tier": "toptier",
-            "name": agency,
-        }]
-        queries.append(("Query E - agency + NAICS", filters))
+        add_keywords(filters, terms)
+        queries.append(("Query C - NAICS + title/lane terms", filters))
+
+    if psc and terms:
+        filters = base_filters(lookback_years)
+        filters["psc_codes"] = [psc]
+        add_keywords(filters, terms)
+        queries.append(("Query D - PSC + title/lane terms", filters))
+
+    if terms and not naics and not psc:
+        filters = base_filters(lookback_years)
+        add_keywords(filters, terms)
+        queries.append(("Query E - title/lane terms only", filters))
+
+    if not queries and agency:
+        filters = base_filters(lookback_years)
+        filters["agencies"] = agency_filter(agency)
+        queries.append(("Query F - agency fallback", filters))
 
     return queries
 
@@ -269,6 +312,11 @@ def award_key(award):
         value = safe_text(award.get(key))
         if value:
             return value
+    piid = safe_text(get_field(award, "PIID", "piid", "Award ID"))
+    recipient = safe_text(get_field(award, "Recipient Name", "recipient_name"))
+    amount = safe_text(get_field(award, "Award Amount", "award_amount", "total_obligation"))
+    if piid or recipient or amount:
+        return f"{piid}|{recipient}|{amount}"
     return json.dumps(award, sort_keys=True)[:200]
 
 
@@ -287,14 +335,30 @@ def code_value(value):
 
 
 def normalize_award(award, query_name):
+    award_amount = safe_float(get_field(award, "Award Amount", "award_amount"))
+    total_obligation = safe_float(get_field(award, "Total Obligation", "total_obligation"))
     return {
         "key": award_key(award),
         "query": query_name,
-        "award_id": safe_text(get_field(award, "Award ID", "award_id", "generated_unique_award_id", "piid", "PIID")),
+        "award_id": safe_text(get_field(award, "Award ID", "award_id")),
+        "generated_unique_award_id": safe_text(get_field(award, "generated_unique_award_id", "generated_internal_id")),
+        "piid": safe_text(get_field(award, "PIID", "piid", "Award ID")),
         "recipient": safe_text(get_field(award, "Recipient Name", "recipient_name")),
-        "amount": safe_float(get_field(award, "Award Amount", "award_amount", "total_obligation")),
-        "start_date": safe_text(get_field(award, "Start Date", "start_date", "date_signed")),
-        "end_date": safe_text(get_field(award, "End Date", "end_date")),
+        "amount": award_amount if award_amount is not None else total_obligation,
+        "total_obligation": total_obligation,
+        "start_date": safe_text(get_field(
+            award,
+            "Start Date",
+            "start_date",
+            "period_of_performance_start_date",
+            "date_signed",
+        )),
+        "end_date": safe_text(get_field(
+            award,
+            "End Date",
+            "end_date",
+            "period_of_performance_current_end_date",
+        )),
         "awarding_agency": safe_text(get_field(award, "Awarding Agency", "awarding_agency")),
         "awarding_subagency": safe_text(get_field(award, "Awarding Sub Agency", "awarding_sub_agency", "awarding_subagency")),
         "funding_agency": safe_text(get_field(award, "Funding Agency", "funding_agency")),
@@ -302,6 +366,16 @@ def normalize_award(award, query_name):
         "naics": code_value(get_field(award, "NAICS", "naics_code")),
         "psc": code_value(get_field(award, "PSC", "psc_code")),
         "award_type": safe_text(get_field(award, "Award Type", "type_description", "award_type")),
+        "base_and_all_options_value": safe_float(get_field(
+            award,
+            "Base and All Options Value",
+            "base_and_all_options_value",
+        )),
+        "place_of_performance": safe_text(get_field(
+            award,
+            "Place of Performance",
+            "place_of_performance",
+        )),
     }
 
 
@@ -322,17 +396,17 @@ def award_matches_structured_inputs(award, row):
 
 
 def should_keep_award(normalized, row):
-    if normalized["query"] != "Query D - title/core keyword search":
+    if "title/lane terms only" not in normalized["query"]:
         return True
     return award_matches_structured_inputs(normalized, row) or keyword_award_relevant(normalized, row)
 
 
-def run_queries(notice_id, row, limit, lookback_years, debug_json):
+def run_queries(notice_id, row, limit, lookback_years, debug_json, overrides=None):
     awards = {}
     query_summaries = []
     debug_paths = []
 
-    for query_name, filters in build_queries(row, lookback_years):
+    for query_name, filters in build_queries(row, lookback_years, overrides):
         payload = make_payload(filters, limit)
         response, error = post_json(API_ENDPOINT, payload)
         raw_awards = result_awards(response)
@@ -367,6 +441,39 @@ def run_queries(notice_id, row, limit, lookback_years, debug_json):
     return list(awards.values()), query_summaries, debug_paths
 
 
+def award_csv_row(award):
+    return {
+        "award_id": award.get("award_id", ""),
+        "generated_unique_award_id": award.get("generated_unique_award_id", ""),
+        "piid": award.get("piid", ""),
+        "award_type": award.get("award_type", ""),
+        "recipient_name": award.get("recipient", ""),
+        "awarding_agency": award.get("awarding_agency", ""),
+        "awarding_subagency": award.get("awarding_subagency", ""),
+        "funding_agency": award.get("funding_agency", ""),
+        "description": award.get("description", ""),
+        "naics": award.get("naics", ""),
+        "psc": award.get("psc", ""),
+        "award_amount": award.get("amount", ""),
+        "total_obligation": award.get("total_obligation", ""),
+        "period_of_performance_start_date": award.get("start_date", ""),
+        "period_of_performance_current_end_date": award.get("end_date", ""),
+        "base_and_all_options_value": award.get("base_and_all_options_value", ""),
+        "place_of_performance": award.get("place_of_performance", ""),
+        "source_query": award.get("query", ""),
+    }
+
+
+def write_awards_csv(notice_id, awards, output_dir):
+    output_path = Path(output_dir) / f"{notice_id}_usaspending_awards.csv"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=AWARD_CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows(award_csv_row(award) for award in awards)
+    return output_path
+
+
 def amount_values(awards):
     return [award["amount"] for award in awards if award.get("amount") is not None]
 
@@ -397,6 +504,14 @@ def aggregate_agencies(awards):
         agency = award.get("awarding_subagency") or award.get("awarding_agency") or "Unknown agency"
         item = stats.setdefault(agency, 0)
         stats[agency] = item + 1
+    return sorted(stats.items(), key=lambda pair: pair[1], reverse=True)
+
+
+def aggregate_codes(awards, field):
+    stats = {}
+    for award in awards:
+        code = award.get(field) or "Unknown"
+        stats[code] = stats.get(code, 0) + 1
     return sorted(stats.items(), key=lambda pair: pair[1], reverse=True)
 
 
@@ -530,6 +645,8 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
     dates = date_values(awards)
     recipients = aggregate_recipients(awards)
     agencies = aggregate_agencies(awards)
+    naics_counts = aggregate_codes(awards, "naics")
+    psc_counts = aggregate_codes(awards, "psc")
     errors = [item for item in query_summaries if item["error"]]
 
     total_value = sum(values) if values else 0
@@ -547,7 +664,7 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
         f"- **Date range in returned awards:** {dates[0]} to {dates[-1]}" if dates else "- **Date range in returned awards:** Not available",
         "- This is market intelligence for validation, not a win-probability estimate.",
         "",
-        "## Opportunity Inputs",
+        "## Opportunity Metadata",
         "",
         f"- **Notice ID:** {notice_id}",
         f"- **Title:** {safe_text(row.get('title')) or 'Not found in CSV'}",
@@ -557,8 +674,11 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
         f"- **PSC:** {safe_text(row.get('psc_code') or row.get('psc'))}",
         f"- **Place of Performance:** {safe_text(row.get('place_of_performance'))}",
         f"- **Set-Aside:** {safe_text(row.get('set_aside'))}",
+        f"- **Matched Keywords:** {safe_text(row.get('matched_keywords'))}",
         f"- **Fit Score:** {safe_text(row.get('fit_score'))}",
         f"- **Prime Reality Score:** {safe_text(row.get('prime_reality_score'))}",
+        f"- **Recommendation:** {safe_text(row.get('recommendation'))}",
+        f"- **Conditional Recommendation:** {safe_text(row.get('conditional_recommendation'))}",
         "",
         "### Related GovCon Scout Outputs",
         "",
@@ -573,7 +693,7 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
 
     lines.extend([
         "",
-        "## USAspending Search Strategy",
+        "## Query Strategy Used",
         "",
         f"- **Endpoint:** `{API_ENDPOINT}`",
         f"- **Limit per query:** {limit}",
@@ -590,7 +710,7 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
 
     lines.extend([
         "",
-        "## Historical Award Snapshot",
+        "## Historical Award Summary",
         "",
         f"- **Deduplicated awards found:** {len(awards)}",
         f"- **Total value:** {money(total_value) if values else 'Not available'}",
@@ -615,9 +735,16 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
     else:
         lines.append("  - Manual review needed - insufficient structured data.")
 
+    lines.append("- **Most common returned NAICS:**")
+    for code, count in naics_counts[:5]:
+        lines.append(f"  - {code}: {count} award(s)")
+    lines.append("- **Most common returned PSC:**")
+    for code, count in psc_counts[:5]:
+        lines.append(f"  - {code}: {count} award(s)")
+
     lines.extend([
         "",
-        "## Award Range",
+        "## Award Value Range",
         "",
         *award_range_section(awards),
         "",
@@ -633,19 +760,19 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
 
     lines.extend([
         "",
-        "## Similar Award Table",
+        "## Similar Award Examples",
         "",
         similar_award_table(awards),
         "",
-        "## Pricing / Pursuit Implications",
+        "## Pricing / Bid Realism Notes",
         "",
         *pricing_implications(notice_id, awards),
         "",
-        "## Prime vs Teaming Notes",
+        "## Prime vs Teaming Implications",
         "",
         *prime_teaming_notes(row, awards),
         "",
-        "## Data Limitations",
+        "## Source API Notes",
         "",
         "- USAspending records are useful for market sizing and incumbent research, but they may not mirror the exact solicitation scope, period of performance, location, options, or set-aside strategy.",
         "- Award amounts can represent obligations, ceilings, base plus options, or modifications depending on award type and record structure.",
@@ -653,6 +780,9 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
         "- Contract award type filters were used conservatively. IDV award history may still matter and should be checked separately for finalists where task-order context is important.",
         "- The official USAspending documentation identifies V2 as current and V1 as deprecated, and documents `/api/v2/search/spending_by_award/` as the Spending by Award Advanced Search endpoint.",
     ])
+
+    if not awards:
+        lines.append("- No relevant award rows were returned from the attempted filters. Consider alternate title terms, agency naming variants, PSC/NAICS validation, or a manual award search.")
 
     if errors:
         lines.append("- **API errors occurred:**")
@@ -666,7 +796,7 @@ def build_report(notice_id, row, awards, query_summaries, debug_paths, limit, lo
 
     lines.extend([
         "",
-        "## Recommended Next Actions",
+        "## Recommended Next Action",
         "",
         "1. Validate whether the returned awards are truly comparable in scope, location, and period of performance.",
         "2. Identify repeat recipients that may be incumbents, partners, or benchmarks.",
@@ -721,6 +851,8 @@ def extract_queue(review_pack_path=DEFAULT_REVIEW_PACK):
             continue
         notice_cell = cells[1]
         notice_id = notice_cell.split(" - ", 1)[0].strip()
+        if notice_id == "MyBidMatch":
+            continue
         if notice_id and notice_id not in notice_ids:
             notice_ids.append(notice_id)
     return notice_ids
@@ -740,9 +872,13 @@ def parse_args():
     parser.add_argument("--notice-id")
     parser.add_argument("--csv", default=DEFAULT_CSV)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--limit", type=int, default=25)
-    parser.add_argument("--lookback-years", type=int, default=5)
-    parser.add_argument("--debug-json", action="store_true")
+    parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--years", "--lookback-years", dest="years", type=int, default=5)
+    parser.add_argument("--debug", "--debug-json", dest="debug", action="store_true")
+    parser.add_argument("--keyword", action="append")
+    parser.add_argument("--agency")
+    parser.add_argument("--naics")
+    parser.add_argument("--psc")
     parser.add_argument("--queue", action="store_true")
     return parser.parse_args()
 
@@ -762,12 +898,19 @@ def main():
     if not row:
         row = {"notice_id": args.notice_id}
 
+    overrides = {
+        "keywords": args.keyword,
+        "agency": args.agency,
+        "naics": args.naics,
+        "psc": args.psc,
+    }
     awards, query_summaries, debug_paths = run_queries(
         notice_id=args.notice_id,
         row=row,
         limit=limit,
-        lookback_years=max(1, args.lookback_years),
-        debug_json=args.debug_json,
+        lookback_years=max(1, args.years),
+        debug_json=args.debug,
+        overrides=overrides,
     )
     output_path = write_report(
         notice_id=args.notice_id,
@@ -777,10 +920,12 @@ def main():
         debug_paths=debug_paths,
         output_dir=args.output_dir,
         limit=limit,
-        lookback_years=max(1, args.lookback_years),
+        lookback_years=max(1, args.years),
     )
+    awards_csv_path = write_awards_csv(args.notice_id, awards, args.output_dir)
 
     print(f"USAspending intel written to: {output_path}")
+    print(f"USAspending awards CSV written to: {awards_csv_path}")
     print(f"Awards found: {len(awards)}")
 
 
