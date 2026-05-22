@@ -1,10 +1,14 @@
 import argparse
+import csv
 import re
 from datetime import datetime
 from pathlib import Path
 
 
 DEFAULT_TRIAGE_BOARD = "reports/triage/govcon_triage_board.md"
+DEFAULT_MYBIDMATCH_TRIAGE = "reports/mybidmatch/mybidmatch_triage.md"
+DEFAULT_GOVCON_CSV = "exports/govcon_scout_opportunities_latest.csv"
+DEFAULT_MYBIDMATCH_CSV = "data/mybidmatch/mybidmatch_opportunities.csv"
 DEFAULT_OUTPUT = "reports/triage/govcon_triage_review_pack.md"
 
 
@@ -101,6 +105,14 @@ def extract_link(value):
     return match.group(1) if match else ""
 
 
+def read_csv_rows(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as file:
+        return [dict(row) for row in csv.DictReader(file)]
+
+
 def parse_board_table(lines, section):
     items = []
     in_section = False
@@ -176,6 +188,63 @@ def parse_triage_board(path):
                 items_by_notice[notice_id]["pursue_now"] = True
 
     return sections, items_by_notice
+
+
+MYBIDMATCH_SECTIONS = ["Priority Review", "Possible Fit", "Teaming/Subcontractor Lead"]
+
+
+def parse_mybidmatch_table(lines, section):
+    items = []
+    in_section = False
+    headers = []
+
+    for line in lines:
+        if line.startswith("## "):
+            current = line.replace("## ", "", 1).strip()
+            if in_section and current != section:
+                break
+            in_section = current == section
+            headers = []
+            continue
+
+        if not in_section or not line.startswith("|"):
+            continue
+
+        cells = split_markdown_row(line)
+        if not cells or all(set(cell) <= {"-", ":"} for cell in cells):
+            continue
+        if cells[0] == "Title":
+            headers = cells
+            continue
+        if not headers or len(cells) < len(headers):
+            continue
+
+        row = dict(zip(headers, cells))
+        title = safe_text(row.get("Title"))
+        if not title:
+            continue
+        items.append({
+            "source": "MyBidMatch",
+            "title": title,
+            "agency": row.get("Agency", ""),
+            "source_file": row.get("Source File", ""),
+            "source_url": extract_link(row.get("Source URL", "")),
+            "lane": row.get("Matched Lane", ""),
+            "confidence": row.get("Confidence", ""),
+            "reason": row.get("Reason", ""),
+            "action": row.get("Recommended Next Action", ""),
+            "similar_govcon": row.get("Similar GovCon Title", ""),
+            "bucket": section,
+        })
+    return items
+
+
+def parse_mybidmatch_triage(path):
+    text = read_text(path)
+    if not text:
+        return {section: [] for section in MYBIDMATCH_SECTIONS}
+    lines = text.splitlines()
+    return {section: parse_mybidmatch_table(lines, section) for section in MYBIDMATCH_SECTIONS}
 
 
 def infer_title_from_file(path, notice_id):
@@ -299,7 +368,12 @@ def has_full_pricing_artifacts(item):
 
 
 def is_sources_candidate(item):
-    return item["status"] == "Sources Sought Plan Generated" and item["prime"] >= 50
+    return (
+        item["status"] == "Sources Sought Plan Generated"
+        and item["prime"] >= 50
+        and is_strategic_title(item.get("title", ""))
+        and not is_obvious_poor_fit(item.get("title", ""))
+    )
 
 
 def is_retry_candidate(item):
@@ -327,6 +401,61 @@ def candidate_score(item):
     return score
 
 
+STRATEGIC_TITLE_TERMS = [
+    "advertis",
+    "ai ",
+    "automation",
+    "communications",
+    "curriculum",
+    "custodial",
+    "event",
+    "janitor",
+    "marketing",
+    "media",
+    "outreach",
+    "pest",
+    "publicity",
+    "recruit",
+    "rfi",
+    "server",
+    "software",
+    "termite",
+    "training",
+    "technical documentation",
+    "trainer",
+]
+
+POOR_FIT_TITLE_TERMS = [
+    "ammunition",
+    "apparel",
+    "cups",
+    "disposable",
+    "food",
+    "pharmaceutical",
+    "uniform",
+    "vehicle purchase",
+    "weapon",
+]
+
+STRATEGIC_MYBIDMATCH_LANES = {
+    "ai_technology_training",
+    "facilities_services",
+    "janitorial",
+    "marketing_communications",
+    "pest_control",
+}
+
+
+def is_strategic_title(title):
+    title_lower = safe_text(title).lower()
+    return any(term in title_lower for term in STRATEGIC_TITLE_TERMS)
+
+
+def is_obvious_poor_fit(title):
+    title_lower = safe_text(title).lower()
+    return any(term in title_lower for term in POOR_FIT_TITLE_TERMS)
+
+
 def artifact_links(item):
     artifacts = item.get("artifacts", {})
     labels = [
@@ -343,6 +472,55 @@ def artifact_links(item):
     ]
     links = [markdown_link(artifacts[key], label) for key, label in labels if key in artifacts]
     return ", ".join(links) if links else "Manual review needed - insufficient structured data."
+
+
+def mybidmatch_score(item):
+    score = 0
+    if item.get("confidence", "").lower() == "high":
+        score += 30
+    elif item.get("confidence", "").lower() == "medium":
+        score += 15
+    if item.get("lane") in STRATEGIC_MYBIDMATCH_LANES:
+        score += 20
+    if is_strategic_title(item.get("title", "")):
+        score += 20
+    if item.get("similar_govcon"):
+        score -= 25
+    if is_obvious_poor_fit(item.get("title", "")):
+        score -= 50
+    return score
+
+
+def mybidmatch_related_outputs(item):
+    links = []
+    source_url = item.get("source_url", "")
+    source_file = Path("data/mybidmatch/raw") / item.get("source_file", "")
+    if source_url:
+        links.append(markdown_link(source_url, "source URL"))
+    if item.get("source_file") and source_file.exists():
+        links.append(markdown_link(str(source_file), "source file"))
+    if item.get("similar_govcon"):
+        links.append(f"Similar GovCon title: {item['similar_govcon']}")
+    return ", ".join(links) if links else "Manual review needed - insufficient structured data."
+
+
+def mybidmatch_table(items):
+    if not items:
+        return "None."
+
+    lines = [
+        "| Title | Agency | Lane | Confidence | Recommended Next Action | Source / Related Output |",
+        "|---|---|---|---|---|---|",
+    ]
+    for item in sorted(items, key=mybidmatch_score, reverse=True):
+        title = safe_text(item.get("title")).replace("|", "/")
+        agency = safe_text(item.get("agency")).replace("|", "/")
+        lane = safe_text(item.get("lane")).replace("|", "/")
+        confidence = safe_text(item.get("confidence")).replace("|", "/") or "unknown"
+        action = safe_text(item.get("action")).replace("|", "/")
+        related = mybidmatch_related_outputs(item).replace("|", "/")
+        lines.append(f"| {title} | {agency} | {lane} | {confidence} | {action} | {related} |")
+    return "\n".join(lines)
 
 
 QUALITY_WARNING_PHRASES = [
@@ -495,7 +673,18 @@ def item_table(items):
     return "\n".join(lines) if items else "None."
 
 
-def build_usaspending_queue(items):
+def is_mybidmatch_queue_candidate(item):
+    return (
+        item.get("bucket") == "Priority Review"
+        and item.get("confidence", "").lower() == "high"
+        and item.get("lane") in STRATEGIC_MYBIDMATCH_LANES
+        and not item.get("similar_govcon")
+        and is_strategic_title(item.get("title", ""))
+        and not is_obvious_poor_fit(item.get("title", ""))
+    )
+
+
+def build_usaspending_queue(items, mybidmatch_items, max_items):
     queue = []
 
     for item in items:
@@ -503,18 +692,42 @@ def build_usaspending_queue(items):
             continue
 
         if has_core_processed_artifacts(item) and has_full_pricing_artifacts(item):
-            queue.append((item, "Processed package has decision/compliance/pricing artifacts; use USAspending to validate pricing and incumbent context."))
+            queue.append((
+                item,
+                "Processed package has decision, compliance, and pricing artifacts. "
+                "Consider USAspending to validate historical award context.",
+            ))
+            continue
+
+        if has_core_processed_artifacts(item):
+            queue.append((
+                item,
+                "Processed package has decision and compliance artifacts. "
+                "Review award history before deeper pursuit work.",
+            ))
             continue
 
         if is_sources_candidate(item):
-            queue.append((item, "Early-stage item appears strategically relevant; use USAspending to identify likely incumbents, primes, and agency buying patterns."))
-            continue
+            queue.append((
+                item,
+                "Early-stage item appears strategically relevant. "
+                "Consider incumbent and buying-pattern research before response shaping.",
+            ))
 
-        if is_retry_candidate(item) and item.get("prime", 0) >= 60:
-            queue.append((item, "Retry-worthy manual item with enough score to consider after one more live review."))
+    for item in mybidmatch_items:
+        if is_mybidmatch_queue_candidate(item):
+            queue.append((
+                item,
+                "MyBidMatch priority lead aligns with a strategic lane. "
+                "Trace the source identifier first; deeper award research requires validation.",
+            ))
 
-    queue = sorted(queue, key=lambda pair: candidate_score(pair[0]), reverse=True)
-    return queue[:8]
+    queue = sorted(
+        queue,
+        key=lambda pair: candidate_score(pair[0]) if pair[0].get("notice_id") else mybidmatch_score(pair[0]),
+        reverse=True,
+    )
+    return queue[:max_items]
 
 
 def queue_table(queue):
@@ -522,13 +735,18 @@ def queue_table(queue):
         return "No conservative USAspending candidates found yet."
 
     lines = [
-        "| Priority | Notice | Reason | Related Outputs |",
+        "| Priority | Candidate | Reason | Related Outputs |",
         "|---:|---|---|---|",
     ]
 
     for index, (item, reason) in enumerate(queue, start=1):
-        notice = f"{item['notice_id']} - {item['title']}".replace("|", "\\|")
-        lines.append(f"| {index} | {notice} | {reason} | {artifact_links(item)} |")
+        if item.get("notice_id"):
+            candidate = f"{item['notice_id']} - {item['title']}".replace("|", "\\|")
+            related = artifact_links(item)
+        else:
+            candidate = f"MyBidMatch - {item['title']}".replace("|", "\\|")
+            related = mybidmatch_related_outputs(item)
+        lines.append(f"| {index} | {candidate} | {reason} | {related} |")
 
     return "\n".join(lines)
 
@@ -548,34 +766,56 @@ def newest_batch_report():
     return str(reports[-1]) if reports else ""
 
 
-def build_review_pack(items, triage_board):
+def source_review_lines(source_paths):
+    lines = []
+    for label, path, rows in source_paths:
+        path_obj = Path(path)
+        status = "reviewed" if path_obj.exists() else "not available"
+        detail = f"; {rows} rows" if rows is not None and path_obj.exists() else ""
+        lines.append(f"- **{label}:** `{path}` {status}{detail}")
+    return lines
+
+
+def build_review_pack(
+    items,
+    triage_board,
+    mybidmatch_triage,
+    mybidmatch_path,
+    govcon_csv,
+    govcon_csv_rows,
+    mybidmatch_csv,
+    mybidmatch_csv_rows,
+    max_usaspending,
+    max_mybidmatch_priority,
+    max_mybidmatch_possible,
+):
     counts = count_by_status(items)
+    pursuit = [item for item in items if item.get("pursue_now")]
     processed = [item for item in items if has_core_processed_artifacts(item)]
     sources = [item for item in items if item["status"] == "Sources Sought Plan Generated"]
     manual = [item for item in items if item["status"].startswith("Manual Review")]
     retry = [item for item in manual if is_retry_candidate(item)]
     pass_items = [item for item in items if is_pass_not_ready(item)]
-    usaspending_queue = build_usaspending_queue(items)
-    ready_pricing_items = [item for item in items if is_ready_for_pricing(item)]
-    needs_data_items = [item for item in items if needs_better_data(item)]
+    mybidmatch_priority = mybidmatch_triage.get("Priority Review", [])
+    mybidmatch_possible = mybidmatch_triage.get("Possible Fit", [])
+    usaspending_queue = build_usaspending_queue(items, mybidmatch_priority, max_usaspending)
     manual_retry_combined = sorted(
         {item["notice_id"]: item for item in (manual + retry)}.values(),
         key=candidate_score, reverse=True,
     )
 
-    n_clean = sum(
-        1 for item in items
-        if item.get("intel", {}).get("usaspending_data_quality_status") == "clean"
-    )
-    n_warning = sum(
-        1 for item in items
-        if item.get("intel", {}).get("usaspending_data_quality_status") == "warning"
-    )
-    n_no_data = sum(
-        1 for item in items
-        if item.get("intel", {}).get("usaspending_intel_exists")
-        and item.get("intel", {}).get("usaspending_data_quality_status") == "no_data"
-    )
+    reviewed_sources = [
+        ("GovCon triage board", triage_board, None),
+        ("MyBidMatch triage", mybidmatch_path, None),
+        ("GovCon opportunities CSV", govcon_csv, len(govcon_csv_rows)),
+        ("MyBidMatch opportunities CSV", mybidmatch_csv, len(mybidmatch_csv_rows)),
+        ("Opportunity reviews folder", "reports/opportunity_reviews", None),
+        ("Sources sought folder", "reports/sources_sought", None),
+        ("Manual review folder", "reports/manual_review", None),
+        ("Pricing folder", "reports/pricing", None),
+        ("Batch runs folder", "reports/batch_runs", None),
+        ("Analysis packets folder", "reports/analysis_packets", None),
+    ]
 
     lines = [
         "# GovCon Scout Triage Review Pack",
@@ -586,64 +826,73 @@ def build_review_pack(items, triage_board):
         "",
         "## Executive Summary",
         "",
-        f"- **Total reviewed items:** {len(items)}",
+        f"- **GovCon Scout items reviewed:** {len(items)}",
+        f"- **GovCon pursuit candidates:** {len(pursuit)}",
         f"- **Processed solicitations (full review package):** {len(processed)}",
         f"- **Sources sought / RFI candidates:** {len(sources)}",
         f"- **Manual review / retry candidates:** {len(manual)}",
-        f"- **Ready for subcontractor quotes / pricing review:** {len(ready_pricing_items)}",
-        f"- **Needs better market data (USAspending noise detected):** {len(needs_data_items)}",
-        f"- **USAspending: clean data:** {n_clean} | **warning:** {n_warning} | **no data:** {len(items) - n_clean - n_warning}",
+        f"- **Pass / not ready:** {len(pass_items)}",
+        f"- **MyBidMatch Priority Review leads:** {len(mybidmatch_priority)}",
+        f"- **MyBidMatch Possible Fit leads:** {len(mybidmatch_possible)}",
         f"- **Recommended USAspending queue size:** {len(usaspending_queue)}",
         "",
         "Use this pack to decide where deeper award intelligence is worth the time. "
-        "It does not estimate win probability.",
+        "It does not estimate win probability, and MyBidMatch leads still require source validation when a notice ID is missing.",
         "",
-        "## Recommended USAspending Queue",
+        "## GovCon Scout Pursuit Candidates",
         "",
-        queue_table(usaspending_queue),
+        "Candidates surfaced by the GovCon triage board for human pursuit review.",
         "",
-        "## Finalist Intelligence Status",
+        item_table(pursuit) if pursuit else "None.",
         "",
-        "Per-item status across all processed and intel-enriched opportunities.",
+        "## Processed Solicitations Ready for Deeper Intel",
         "",
-        finalist_intel_table(items),
+        "Processed solicitation candidates with the decision, bid/no-bid, and compliance outputs already available.",
         "",
-        "## Ready for Pricing Review",
+        item_table(processed) if processed else "None.",
         "",
-        "These items have a full review package (decision/compliance/bid-no-bid), a pricing schedule, "
-        "USAspending intel, and a bid price sanity check with no data quality warning.",
-        "",
-        item_table(ready_pricing_items) if ready_pricing_items else "None yet. Run USAspending + sanity check on processed solicitations with pricing.",
-        "",
-        "## Needs Better Market Data",
-        "",
-        "These items have USAspending intel, but the data quality check flagged the award range as "
-        "unreliable (unrelated contracts, implausible values, or noisy results). "
-        "Do not use the flagged award range for pricing. Search FPDS or GSA Advantage for comparable awards manually.",
-        "",
-        item_table(needs_data_items) if needs_data_items else "None flagged.",
-        "",
-        "## Sources Sought / RFI Candidates",
+        "## Sources Sought / RFI Response Candidates",
         "",
         item_table(sources) if sources else "None.",
+        "",
+        "## MyBidMatch Priority Review Leads",
+        "",
+        "Priority daily-list leads worth source/origin review before deeper automation or market research.",
+        "",
+        mybidmatch_table(mybidmatch_priority[:max_mybidmatch_priority]),
+        "",
+        "## MyBidMatch Possible Fit Leads",
+        "",
+        "Leads that may fit after detail-page validation, source tracing, and scope review.",
+        "",
+        mybidmatch_table(mybidmatch_possible[:max_mybidmatch_possible]),
         "",
         "## Manual Review / Retry Candidates",
         "",
         item_table(manual_retry_combined) if manual_retry_combined else "None.",
         "",
+        "## Pass / Not Ready",
+        "",
+        item_table(pass_items) if pass_items else "None.",
+        "",
+        "## Recommended USAspending Queue",
+        "",
+        "This queue is intentionally small. MyBidMatch rows without a confirmed identifier remain validation-first candidates.",
+        "",
+        queue_table(usaspending_queue),
+        "",
         "## Recommended Next Actions",
         "",
-        "1. **Start with Ready for Pricing Review items.** Get 2–3 subcontractor quotes, compare against "
-        "USAspending range, build CLIN-level pricing.",
-        "2. **For Needs Better Market Data items:** Search FPDS or GSA Advantage for comparable scope/location/agency awards. "
-        "Do not price from the flagged USAspending range.",
-        "3. **Run USAspending on processed items missing intel.** Priority: items with pricing schedule already extracted.",
-        "4. **For sources-sought/RFI candidates:** Use USAspending to identify likely incumbents and agency buying patterns "
-        "before drafting capability statements or outreach.",
-        "5. **Retry manual-review candidates** only when debug evidence suggests login/session or selector issues — "
-        "not when the notice appears text-only or attachment-less.",
-        "6. **Keep pass/not-ready items out of deeper research** until attachments, clearer requirements, "
-        "or stronger pursuit rationale appear.",
+        "1. Review processed GovCon solicitation packages first; pricing and compliance outputs make award research more actionable.",
+        "2. Consider USAspending for the recommended queue only after confirming the candidate scope and source record.",
+        "3. For sources-sought/RFI items, review the response plan and validate likely agency buying patterns before outreach.",
+        "4. Trace MyBidMatch Priority Review leads to the article or origin source before attempting GovCon processing.",
+        "5. Retry manual-review items only when live/session or downloader evidence suggests the opportunity can be recovered.",
+        "6. Keep pass/not-ready and weak MyBidMatch items out of deeper research until requirements become clearer.",
+        "",
+        "## Source Files Reviewed",
+        "",
+        *source_review_lines(reviewed_sources),
         "",
     ]
 
@@ -651,15 +900,24 @@ def build_review_pack(items, triage_board):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Build a GovCon Scout triage review pack.")
+    parser = argparse.ArgumentParser(description="Build a combined GovCon Scout and MyBidMatch triage review pack.")
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--triage-board", default=DEFAULT_TRIAGE_BOARD)
+    parser.add_argument("--mybidmatch-triage", default=DEFAULT_MYBIDMATCH_TRIAGE)
+    parser.add_argument("--govcon-csv", default=DEFAULT_GOVCON_CSV)
+    parser.add_argument("--mybidmatch-csv", default=DEFAULT_MYBIDMATCH_CSV)
+    parser.add_argument("--max-usaspending", type=int, default=10)
+    parser.add_argument("--max-mybidmatch-priority", type=int, default=25)
+    parser.add_argument("--max-mybidmatch-possible", type=int, default=25)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     _sections, board_items = parse_triage_board(args.triage_board)
+    mybidmatch_triage = parse_mybidmatch_triage(args.mybidmatch_triage)
+    govcon_csv_rows = read_csv_rows(args.govcon_csv)
+    mybidmatch_csv_rows = read_csv_rows(args.mybidmatch_csv)
     discovered = discover_artifact_items(board_items)
 
     merged = {**discovered, **board_items}
@@ -667,7 +925,22 @@ def main():
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(build_review_pack(items, args.triage_board), encoding="utf-8")
+    output_path.write_text(
+        build_review_pack(
+            items,
+            args.triage_board,
+            mybidmatch_triage,
+            args.mybidmatch_triage,
+            args.govcon_csv,
+            govcon_csv_rows,
+            args.mybidmatch_csv,
+            mybidmatch_csv_rows,
+            max(1, args.max_usaspending),
+            max(1, args.max_mybidmatch_priority),
+            max(1, args.max_mybidmatch_possible),
+        ),
+        encoding="utf-8",
+    )
 
     print(f"Triage review pack written to: {output_path}")
 
