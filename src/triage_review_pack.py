@@ -474,6 +474,85 @@ def artifact_links(item):
     return ", ".join(links) if links else "Manual review needed - insufficient structured data."
 
 
+def section_bullets(text, heading):
+    bullets = []
+    in_section = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            section = line.replace("## ", "", 1).strip()
+            if in_section and section != heading:
+                break
+            in_section = section == heading
+            continue
+        if in_section and line.startswith("- **"):
+            bullets.append(line)
+    return bullets
+
+
+def usaspending_award_count(notice_id, text):
+    match = re.search(r"\*\*Awards found:\*\*\s*(\d+)", text)
+    if match:
+        return score_int(match.group(1))
+
+    csv_path = Path("reports/market_intel") / f"{notice_id}_usaspending_awards.csv"
+    if not csv_path.exists():
+        return None
+    with csv_path.open("r", encoding="utf-8", newline="") as file:
+        return sum(1 for _row in csv.DictReader(file))
+
+
+def usaspending_top_recipients(text, limit=3):
+    recipients = []
+    for bullet in section_bullets(text, "Top Recipients / Possible Incumbents"):
+        match = re.match(r"- \*\*(.+?):\*\*", bullet)
+        if not match:
+            continue
+        recipients.append(match.group(1).strip())
+        if len(recipients) >= limit:
+            break
+    return recipients
+
+
+def market_intel_posture(item, intel):
+    if not intel["report_exists"] or not intel["award_count"]:
+        return "Further Validation"
+    if item.get("intel", {}).get("usaspending_data_quality_status") == "warning":
+        return "Further Validation"
+    if item.get("status") == "Sources Sought Plan Generated":
+        return "Teaming"
+    if not has_core_processed_artifacts(item) or not has_full_pricing_artifacts(item):
+        return "Further Validation"
+    if item.get("prime", 0) >= 60 and "hold" not in item_note(item).lower():
+        return "Prime"
+    return "Further Validation"
+
+
+def usaspending_queue_intel(item):
+    if not item.get("notice_id"):
+        return {
+            "report_exists": False,
+            "award_count": None,
+            "top_recipients": [],
+            "posture": "Further Validation",
+        }
+
+    path = artifact_path(item["notice_id"], "usaspending_intel")
+    text = read_text(path)
+    intel = {
+        "report_exists": bool(text),
+        "award_count": usaspending_award_count(item["notice_id"], text),
+        "top_recipients": usaspending_top_recipients(text),
+    }
+    intel["posture"] = market_intel_posture(item, intel)
+    return intel
+
+
+def recipient_summary(recipients):
+    if not recipients:
+        return "Pending"
+    return ", ".join(recipients)
+
+
 def mybidmatch_score(item):
     score = 0
     if item.get("confidence", "").lower() == "high":
@@ -735,8 +814,8 @@ def queue_table(queue):
         return "No conservative USAspending candidates found yet."
 
     lines = [
-        "| Priority | Candidate | Reason | Related Outputs |",
-        "|---:|---|---|---|",
+        "| Priority | Candidate | Market Intel | Awards | Top Recipients | Intel Posture | Reason | Related Outputs |",
+        "|---:|---|---|---:|---|---|---|---|",
     ]
 
     for index, (item, reason) in enumerate(queue, start=1):
@@ -746,7 +825,14 @@ def queue_table(queue):
         else:
             candidate = f"MyBidMatch - {item['title']}".replace("|", "\\|")
             related = mybidmatch_related_outputs(item)
-        lines.append(f"| {index} | {candidate} | {reason} | {related} |")
+        intel = usaspending_queue_intel(item)
+        market_intel = "Report ready" if intel["report_exists"] else "Not run"
+        award_count = intel["award_count"] if intel["award_count"] is not None else "Pending"
+        recipients = recipient_summary(intel["top_recipients"]).replace("|", "/")
+        lines.append(
+            f"| {index} | {candidate} | {market_intel} | {award_count} | {recipients} "
+            f"| {intel['posture']} | {reason} | {related} |"
+        )
 
     return "\n".join(lines)
 
