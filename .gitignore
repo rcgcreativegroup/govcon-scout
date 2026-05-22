@@ -1,5 +1,7 @@
 # Secrets and local sessions
 auth.json
+mybidmatch_auth.json
+mybidmatch-session-check.png
 .env
 .env.*
 .browser/
@@ -14,6 +16,7 @@ cache/
 debug/
 downloads/_debug/
 sam-session-test.png
+sam-login-save-check.png
 sam-profile-test.png
 sam-profile-login-check.png
 
