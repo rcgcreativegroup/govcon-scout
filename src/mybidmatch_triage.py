@@ -67,6 +67,57 @@ HIGH_RISK_TERMS = [
     "medical equipment", "laboratory instrument",
 ]
 
+NEGATIVE_FILTER_TERMS = [
+    "medical supplies", "pharmaceutical", "pharmaceuticals", "medication",
+    "ammunition", "ammo", "weapons", "weapon system", "firearms",
+    "food commodities", "food products", "meals", "uniforms", "apparel",
+    "lab equipment", "laboratory equipment", "heavy machinery",
+    "heavy equipment", "vehicle purchase", "vehicle purchases",
+    "purchase of vehicles", "disposable cups", "disposable goods",
+]
+
+PRODUCT_SUPPLY_TERMS = [
+    "supplies", "supply purchase", "commodity", "commodities", "purchase",
+    "equipment purchase", "equipment", "furniture", "parts", "products",
+]
+
+SERVICE_TERMS = [
+    "service", "services", "support", "maintenance", "management",
+    "training", "outreach", "advertising", "marketing", "janitorial",
+    "custodial", "cleaning", "pest", "termite", "fumigation",
+]
+
+CONSTRUCTION_HEAVY_TERMS = [
+    "construction", "renovation", "demolition", "roof replacement",
+    "paving", "plumbing construction", "electrical construction",
+]
+
+PRIORITY_TITLE_TERMS = {
+    "marketing_communications": [
+        "marketing", "advertising", "public outreach", "outreach",
+        "recruiting", "communications", "communication", "public relations",
+        "public event", "event management", "media buying", "video production",
+    ],
+    "ai_technology_training": [
+        "artificial intelligence", "workflow automation", "automation",
+        "software", "training", "curriculum", "technical documentation",
+        "instructional design", "courseware",
+    ],
+    "janitorial": [
+        "janitorial", "custodial", "cleaning services", "housekeeping",
+        "floor care", "window cleaning",
+    ],
+    "pest_control": [
+        "pest control", "pest management", "integrated pest",
+        "termite", "fumigation", "extermination",
+    ],
+    "facilities_services": [
+        "facilities services", "facility services", "facilities management",
+        "facility management", "building maintenance", "grounds maintenance",
+        "operations and maintenance", "landscaping",
+    ],
+}
+
 
 def safe_text(value):
     if value is None:
@@ -133,63 +184,129 @@ def detect_lane(row):
 
 def is_high_risk(row):
     text = padded_text(row)
-    return [term for term in HIGH_RISK_TERMS if term in text]
+    return [term for term in HIGH_RISK_TERMS if term_matches(term, text)]
+
+
+def title_hits(row, terms):
+    title = f" {normalize(row.get('title'))} "
+    return [term for term in terms if term_matches(term, title)]
+
+
+def negative_hits(row):
+    title = f" {normalize(row.get('title'))} "
+    hits = [term for term in NEGATIVE_FILTER_TERMS if term_matches(term, title)]
+    hits.extend(term for term in CONSTRUCTION_HEAVY_TERMS if term_matches(term, title))
+    return hits
+
+
+def pure_product_supply(row):
+    title = f" {normalize(row.get('title'))} "
+    products = [term for term in PRODUCT_SUPPLY_TERMS if term_matches(term, title)]
+    service_hits = [term for term in SERVICE_TERMS if term_matches(term, title)]
+    return products if products and not service_hits else []
+
+
+def classification(bucket, lane, reason, action, confidence):
+    return {
+        "bucket": bucket,
+        "lane": lane,
+        "reason": reason,
+        "action": action,
+        "confidence": confidence,
+    }
+
+
+def source_context_is_clear(row):
+    return bool(safe_text(row.get("agency")) and safe_text(row.get("title")))
 
 
 def classify(row):
     lane, hits = detect_lane(row)
     risk_hits = is_high_risk(row)
-    title = safe_text(row.get("title")) or "Untitled"
+    rejected_hits = negative_hits(row)
+    product_hits = pure_product_supply(row)
 
     if lane == "unknown":
-        return {
-            "bucket": "Ignore / Poor Fit",
-            "lane": lane,
-            "reason": "No strategic keyword or NAICS lane match detected from the current MyBidMatch row.",
-            "action": "Ignore unless the article detail reveals a JPTR/RCG lane.",
-        }
+        if rejected_hits or product_hits:
+            bad_hits = rejected_hits or product_hits
+            return classification(
+                "Ignore / Poor Fit",
+                lane,
+                f"Negative/noise filter matched {', '.join(bad_hits[:3])}; no service lane signal overrides it.",
+                "Ignore unless the source detail materially changes the scope.",
+                "high",
+            )
+        return classification(
+            "Ignore / Poor Fit",
+            lane,
+            "No strategic keyword or NAICS lane match detected from the current MyBidMatch row.",
+            "Ignore unless the article detail reveals a JPTR/RCG lane.",
+            "medium",
+        )
 
     hit_text = ", ".join(hits[:4])
     reason = f"Matched {lane} using {hit_text}."
 
+    if rejected_hits or product_hits:
+        bad_hits = rejected_hits or product_hits
+        return classification(
+            "Ignore / Poor Fit",
+            lane,
+            f"{reason} Negative/noise filter matched {', '.join(bad_hits[:3])}.",
+            "Ignore product/trade noise unless source detail reveals a service-led scope.",
+            "high",
+        )
+
     if risk_hits:
-        return {
-            "bucket": "Teaming/Subcontractor Lead",
-            "lane": lane,
-            "reason": f"{reason} Specialized/control-risk term(s): {', '.join(risk_hits[:3])}.",
-            "action": "Review source detail and identify a qualified performer before deciding whether to pursue.",
-        }
+        return classification(
+            "Teaming/Subcontractor Lead",
+            lane,
+            f"{reason} Specialized/control-risk term(s): {', '.join(risk_hits[:3])}.",
+            "Review source detail and identify a qualified performer before deciding whether to pursue.",
+            "medium",
+        )
 
-    if lane in {"marketing_communications", "ai_technology_training"}:
-        return {
-            "bucket": "Strong RCG/JPTR Fit",
-            "lane": lane,
-            "reason": reason,
-            "action": "Open the MyBidMatch article/source and capture notice ID or origin link for qualification.",
-        }
+    priority_hits = title_hits(row, PRIORITY_TITLE_TERMS.get(lane, []))
+    if priority_hits and source_context_is_clear(row) and lane in PRIORITY_TITLE_TERMS:
+        if lane in {"janitorial", "pest_control", "facilities_services"}:
+            action = "Trace the source and validate performer, pricing, and scope before adding to GovCon Scout."
+            note = "Service title is clear enough for subcontractor-managed pursuit review."
+        else:
+            action = "Open the MyBidMatch article/source and capture notice ID or origin link for qualification."
+            note = "Title aligns directly with an RCG/JPTR review lane."
+        return classification(
+            "Priority Review",
+            lane,
+            f"{reason} Strong title signal: {', '.join(priority_hits[:3])}. {note}",
+            action,
+            "high",
+        )
 
-    if lane in {"janitorial", "pest_control", "trucking_transportation"}:
-        return {
-            "bucket": "Strong RCG/JPTR Fit" if len(hits) >= 1 else "Possible Fit",
-            "lane": lane,
-            "reason": f"{reason} Routine lane can be led through subcontractor-managed fulfillment after validation.",
-            "action": "Trace the source, validate subcontractor/supplier path, then decide whether it belongs in GovCon Scout.",
-        }
+    if lane == "trucking_transportation":
+        return classification(
+            "Possible Fit",
+            lane,
+            f"{reason} Transportation/hauling lead needs scope and sourcing review before priority status.",
+            "Open source detail and confirm cargo, route, equipment, endorsements, and subcontractor path.",
+            "medium",
+        )
 
     if lane in {"facilities_services", "security_services"}:
-        return {
-            "bucket": "Teaming/Subcontractor Lead",
-            "lane": lane,
-            "reason": f"{reason} Likely needs scope, licensing, or performer validation before prime pursuit.",
-            "action": "Open source detail and validate performer, insurance/licensing, compliance, and control risk.",
-        }
+        return classification(
+            "Teaming/Subcontractor Lead",
+            lane,
+            f"{reason} Likely needs scope, licensing, or performer validation before prime pursuit.",
+            "Open source detail and validate performer, insurance/licensing, compliance, and control risk.",
+            "medium",
+        )
 
-    return {
-        "bucket": "Possible Fit",
-        "lane": lane,
-        "reason": reason,
-        "action": "Review article detail before adding it to the pursuit queue.",
-    }
+    return classification(
+        "Possible Fit",
+        lane,
+        f"{reason} Current daily-list row does not have a strong enough service title for priority review.",
+        "Review article detail before adding it to the pursuit queue.",
+        "low",
+    )
 
 
 def read_csv(path):
@@ -266,8 +383,8 @@ def table(items):
     if not items:
         return "None."
     lines = [
-        "| Title | Agency | Source File | Source URL | Matched Lane | Reason | Recommended Next Action | Similar GovCon Title |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Title | Agency | Source File | Source URL | Matched Lane | Confidence | Reason | Recommended Next Action | Similar GovCon Title |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for item in items:
         similar = item.get("similar_govcon")
@@ -280,7 +397,7 @@ def table(items):
         link_text = f"[open]({link})" if link else ""
         lines.append(
             f"| {row_label(item)} | {inline(item.get('agency'))} | {inline(item.get('source_file'))} | "
-            f"{link_text} | {inline(item.get('lane'))} | {inline(item.get('reason'))} | "
+            f"{link_text} | {inline(item.get('lane'))} | {inline(item.get('confidence'))} | {inline(item.get('reason'))} | "
             f"{inline(item.get('action'))} | {inline(duplicate)} |"
         )
     return "\n".join(lines)
@@ -288,7 +405,7 @@ def table(items):
 
 def build_report(items, input_path, govcon_path):
     buckets = [
-        "Strong RCG/JPTR Fit",
+        "Priority Review",
         "Possible Fit",
         "Teaming/Subcontractor Lead",
         "Ignore / Poor Fit",
@@ -329,7 +446,7 @@ def build_report(items, input_path, govcon_path):
         "",
         "## Triage Notes",
         "",
-        "- Strong and possible fits still require source/origin review because daily-list rows often omit notice IDs, due dates, and full scope.",
+        "- Priority and possible fits still require source/origin review because daily-list rows often omit notice IDs, due dates, and full scope.",
         "- Similar-title flags are approximate. Use them to avoid duplicate chasing, not as proof of a SAM.gov match.",
         "- Security, facility, and specialized/control-risk items are kept as teaming/subcontractor leads until performer and compliance requirements are clear.",
     ])
@@ -347,7 +464,7 @@ def build_report(items, input_path, govcon_path):
         "",
         "## Recommended Next Actions",
         "",
-        "1. Open Strong Fit article links first and recover source URL, notice ID, due date, and attachment path where available.",
+        "1. Open Priority Review article links first and recover source URL, notice ID, due date, and attachment path where available.",
         "2. Check similar-title flags against GovCon Scout before manually chasing a MyBidMatch lead.",
         "3. Keep teaming/subcontractor leads in review until prime-control and compliance requirements are clear.",
         "4. Import or process only leads with a confirmed SAM/origin path; do not process daily-list rows solely from missing-notice-ID records.",
