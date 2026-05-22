@@ -99,6 +99,30 @@ WARNING_PHRASES = [
     "must register",
 ]
 
+LOCAL_CAPTURE_INSTRUCTIONS = """\
+**This is a browser/cloud access restriction — not an opportunity failure.**
+
+OutreachSystems blocks access from Codespaces, cloud VMs, and automated browsers (403 Forbidden).
+Use the offline importer instead:
+
+1. Open MyBidMatch in your normal browser (Chrome, Firefox, Edge).
+2. Log in to OutreachSystems if prompted.
+3. Open the date page with today's articles.
+4. Save the page: **File → Save Page As → Webpage, HTML Only**.
+   Or copy the page source (Ctrl+U → Select All → Save as .html).
+5. Put the file in `data/mybidmatch/raw/`.
+6. Run:
+
+   ```
+   python src/mybidmatch_importer.py --html-dir data/mybidmatch/raw/
+   ```
+
+Other modes:
+- Saved daily page:   `python src/mybidmatch_importer.py --daily-html data/mybidmatch/raw/daily.html`
+- Single article:     `python src/mybidmatch_importer.py --article-file path/to/article.html`
+- Email body text:    `python src/mybidmatch_importer.py --email-file "data/mybidmatch/raw/email.txt"`
+"""
+
 DIRECTORY_MARKERS = ["mybidmatch", "outreachsystems", "articles", "search profile"]
 
 SOURCES_SOUGHT_TERMS = [
@@ -805,13 +829,15 @@ LEADS_COLUMNS = [
     "set_aside", "naics", "poc_email", "base_lane", "specialization_level",
     "fulfillment_path", "subcontractor_feasibility", "prime_control_risk",
     "source_type", "origin_trace_status", "priority", "recommended_action",
-    "govcon_status", "raw_text_excerpt",
+    "govcon_status", "intake_method", "access_status", "local_capture_needed",
+    "raw_text_excerpt",
 ]
 
 SAM_QUEUE_COLUMNS = [
     "date_text", "title", "agency", "fsg", "sam_url", "solicitation_number",
     "due_date", "naics", "set_aside", "base_lane", "fulfillment_path",
     "prime_control_risk", "priority", "govcon_status", "recommended_action",
+    "intake_method", "access_status", "local_capture_needed",
 ]
 
 
@@ -851,6 +877,7 @@ def _table(leads):
 def build_leads_report(leads, meta):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     errors = meta.get("errors", [])
+    intake = meta.get("intake_method", "browser")
 
     sam_new     = [l for l in leads if l.get("govcon_status") == "new_sam_ready"]
     sam_known   = [l for l in leads if l.get("govcon_status") == "already_in_govcon_scout"]
@@ -863,10 +890,12 @@ def build_leads_report(leads, meta):
     hi_risk     = [l for l in leads if l.get("prime_control_risk") == "high"]
     followup    = [l for l in leads if l.get("govcon_status") == "non_sam_followup"]
     pass_watch  = [l for l in leads if l.get("recommended_action") == "pass_or_watch"]
+    needs_capture = [l for l in leads if l.get("local_capture_needed") == "Yes"]
 
     out = [
         "# MyBidMatch Browser Leads Report", "",
         f"**Generated:** {ts}",
+        f"**Intake method:** `{intake}`",
         f"**Dates processed:** {meta.get('dates_processed', 0)}",
         f"**Articles processed:** {len(leads)}", "",
         "## Executive Summary", "",
@@ -878,6 +907,8 @@ def build_leads_report(leads, meta):
         f"- **Third-party / paywall:** {len(portal)}",
         f"- **Non-SAM follow-up:** {len(followup)}",
     ]
+    if needs_capture:
+        out.append(f"- **Local capture needed:** {len(needs_capture)}")
     if errors:
         out.append(f"- **Parse errors / warnings:** {len(errors)}")
     out += [
@@ -894,6 +925,9 @@ def build_leads_report(leads, meta):
         "## Non-SAM Follow-Up Queue", "", _table(followup), "",
         "## Pass / Watchlist", "", _table(pass_watch), "",
     ]
+
+    if needs_capture:
+        out += ["## Local Capture Needed", "", LOCAL_CAPTURE_INSTRUCTIONS, ""]
 
     if errors:
         out += ["## Errors / Parse Warnings", ""]
@@ -1038,16 +1072,34 @@ def main():
 
         if not date_entries:
             print("\n[FAIL] No date entries found. Writing failure report and exiting.")
-            fail_txt = (
-                "# MyBidMatch Browser Leads Report\n\n"
-                f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                "## Error\n\nNo date entries could be extracted from the directory page.\n\n"
-                "**Possible causes:**\n"
-                "- URL is wrong or has expired\n"
-                "- Page structure has changed\n"
-                "- Network/timeout issue\n\n"
-                "**Errors:**\n" + "".join(f"- {e}\n" for e in all_errors)
+            fail_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            is_403 = any(
+                "403 Forbidden" in e or "403</h1>" in e or "access denied" in e.lower()
+                for e in all_errors
             )
+            if is_403:
+                fail_txt = (
+                    "# MyBidMatch Browser Leads Report\n\n"
+                    f"**Generated:** {fail_ts}\n\n"
+                    "**Access Status:** `browser_or_cloud_access_blocked`\n\n"
+                    "> OutreachSystems blocked the automated browser (403 Forbidden). "
+                    "This is not an opportunity failure.\n\n"
+                    "## Local Capture Needed\n\n"
+                    + LOCAL_CAPTURE_INSTRUCTIONS + "\n\n"
+                    "## Technical Details\n\n"
+                    + "".join(f"- {e}\n" for e in all_errors)
+                )
+            else:
+                fail_txt = (
+                    "# MyBidMatch Browser Leads Report\n\n"
+                    f"**Generated:** {fail_ts}\n\n"
+                    "## Error\n\nNo date entries could be extracted from the directory page.\n\n"
+                    "**Possible causes:**\n"
+                    "- URL is wrong or has expired\n"
+                    "- Page structure has changed\n"
+                    "- Network/timeout issue\n\n"
+                    "**Errors:**\n" + "".join(f"- {e}\n" for e in all_errors)
+                )
             out_p = Path(args.report)
             out_p.parent.mkdir(parents=True, exist_ok=True)
             out_p.write_text(fail_txt, encoding="utf-8")
@@ -1092,6 +1144,9 @@ def main():
 
                 art.update(detail)
                 art.update(classify_lead(art))
+                art["intake_method"] = "browser"
+                art["access_status"] = "ok"
+                art["local_capture_needed"] = "No"
                 art["govcon_status"] = govcon_status(art, known_ids)
                 leads.append(art)
 
