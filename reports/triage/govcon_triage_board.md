@@ -1,6 +1,6 @@
 # GovCon Scout Triage Board
 
-**Generated:** 2026-05-21 18:02:03
+**Generated:** 2026-05-23 02:26:19
 **Source CSV:** `exports/govcon_scout_opportunities_latest.csv`
 **Latest Batch Report:** `reports/batch_runs/process_shortlist_2026-05-21_1745.md`
 

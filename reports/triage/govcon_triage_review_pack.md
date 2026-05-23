@@ -1,6 +1,6 @@
 # GovCon Scout Triage Review Pack
 
-**Generated:** 2026-05-23 01:49:24
+**Generated:** 2026-05-23 02:26:19
 **Triage Board:** `reports/triage/govcon_triage_board.md`
 **Latest Batch Report:** `reports/batch_runs/process_shortlist_2026-05-21_1745.md`
 
