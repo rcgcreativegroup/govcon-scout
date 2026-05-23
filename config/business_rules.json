@@ -1,0 +1,22 @@
+{
+  "hard_disqualifiers": [
+    "top secret",
+    "ts/sci",
+    "secret clearance",
+    "security clearance required",
+    "team already in place",
+    "existing team required",
+    "5 years federal past performance",
+    "government-specific past performance required",
+    "same-size same-scope past performance required",
+    "same or similar government past performance required",
+    "armed guard license",
+    "must be currently licensed"
+  ],
+  "soft_disqualifiers": [
+    "preferred clearance",
+    "preferred past performance",
+    "incumbent contractor",
+    "prior federal experience preferred"
+  ]
+}

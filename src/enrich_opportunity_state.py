@@ -168,6 +168,18 @@ def csv_safe_text(value, max_chars=None):
     return text, truncated
 
 
+def useful_synopsis_text(value, max_chars=2000):
+    text, truncated = csv_safe_text(value, max_chars=max_chars)
+    if not text:
+        return "", False
+    if text.strip().lower() in {"yes", "no", "true", "false", "none", "null", "not available"}:
+        return "", False
+    meaningful = re.sub(r"[^A-Za-z0-9]+", "", text)
+    if len(meaningful) < 20:
+        return "", False
+    return text, truncated
+
+
 def first_value(row, candidates):
     for field in candidates:
         value = clean(row.get(field))
@@ -413,7 +425,7 @@ def build_enrichment(export_row):
 
     for target in ["description", "synopsis"]:
         value = first_value(export_row, FIELD_SOURCES[target])
-        text, was_truncated = csv_safe_text(value, max_chars=2000)
+        text, was_truncated = useful_synopsis_text(value, max_chars=2000)
         if text:
             out[target] = text
             if was_truncated:
@@ -450,6 +462,22 @@ def build_enrichment(export_row):
     return out, truncated
 
 
+def target_available_from_export(target, export_row):
+    if target in ["place_of_performance_city", "place_of_performance_state", "place_of_performance_country"]:
+        place_parts = normalize_place(first_value(export_row, FIELD_SOURCES["place_of_performance"]))
+        return bool(place_parts.get(target))
+    if target in ["response_deadline_time", "response_deadline_timezone", "deadline_time", "deadline_tz"]:
+        return bool(parse_deadline(first_value(export_row, ["response_deadline"])).get(target))
+    if target in ["buyer_name", "buyer_email", "buyer_phone"]:
+        direct_fields = [field for field in FIELD_SOURCES[target] if field != "contacts"]
+        if first_value(export_row, direct_fields):
+            return True
+        return bool(parse_contacts(first_value(export_row, ["contacts"])).get(target))
+    if target in FIELD_SOURCES:
+        return bool(first_value(export_row, FIELD_SOURCES[target]))
+    return False
+
+
 def enrich(write=False):
     state_rows, state_headers = read_csv(STATE_PATH)
     state_ids = {row_id(row) for row in state_rows if row_id(row)}
@@ -466,6 +494,8 @@ def enrich(write=False):
             output_headers.append(column)
 
     field_counts = Counter()
+    skipped_populated_counts = Counter()
+    export_blank_counts = Counter()
     truncated_counts = Counter()
     rows_updated = 0
     matched_rows = 0
@@ -479,6 +509,13 @@ def enrich(write=False):
         matched_rows += 1
         enrichment, truncated = build_enrichment(export_row)
         changed_fields = []
+        for field in TARGET_COLUMNS:
+            if field in PROTECTED_COLUMNS:
+                continue
+            if clean(row.get(field)):
+                skipped_populated_counts[field] += 1
+            elif field not in enrichment and not target_available_from_export(field, export_row):
+                export_blank_counts[field] += 1
         for field, value in enrichment.items():
             if field in PROTECTED_COLUMNS or not value:
                 continue
@@ -521,6 +558,8 @@ def enrich(write=False):
         "rows_matched": matched_rows,
         "rows_updated": rows_updated,
         "field_counts": dict(field_counts),
+        "skipped_populated_counts": dict(skipped_populated_counts),
+        "export_blank_counts": dict(export_blank_counts),
         "truncated_counts": dict(truncated_counts),
         "examples": examples,
         "missing_groups": missing_groups,
@@ -551,6 +590,18 @@ def print_summary(summary):
             print(f"- {field}: {count}")
     else:
         print("Truncated values: none")
+    print("Fields skipped because already populated:")
+    if summary["skipped_populated_counts"]:
+        for field, count in sorted(summary["skipped_populated_counts"].items()):
+            print(f"- {field}: {count}")
+    else:
+        print("- none")
+    print("Fields unavailable or blank in the export for matched rows:")
+    if summary["export_blank_counts"]:
+        for field, count in sorted(summary["export_blank_counts"].items()):
+            print(f"- {field}: {count}")
+    else:
+        print("- none")
     if summary["examples"]:
         print("Example updated rows:")
         for rid, fields in summary["examples"]:

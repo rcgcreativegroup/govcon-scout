@@ -1,0 +1,24 @@
+{
+  "stages": [
+    "Triage",
+    "Intake",
+    "Manual Review",
+    "AI Review",
+    "Development",
+    "Ready to Submit",
+    "Execution",
+    "Archive",
+    "Done"
+  ],
+  "note_types": [
+    "general_note",
+    "buyer_feedback",
+    "vendor_quote_note",
+    "call_note",
+    "requirement_question",
+    "risk_note",
+    "submission_note",
+    "follow_up_note",
+    "pricing_note"
+  ]
+}

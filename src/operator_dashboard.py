@@ -18,6 +18,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import requests
+
+from detail_enrichment import extract_description_from_detail, fetch_sam_detail
+from sam_client import fetch_notice_description, get_sam_api_key
+
 
 # CONFIG / PATH CONSTANTS
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -325,6 +330,15 @@ def backup_state_file():
     return str(backup_path.relative_to(BASE_DIR))
 
 
+def backup_state_file_for_synopsis():
+    if not OPPORTUNITY_STATE_PATH.exists():
+        return ""
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = BACKUP_DIR / f"opportunity_state_before_synopsis_{stamp}.csv"
+    shutil.copy2(OPPORTUNITY_STATE_PATH, backup_path)
+    return str(backup_path.relative_to(BASE_DIR))
+
+
 def run_local_state_builder_if_needed():
     if OPPORTUNITY_STATE_PATH.exists():
         return
@@ -386,6 +400,18 @@ def meaningful_text(value):
     if not text:
         return ""
     if text.lower() in {"no", "yes", "none", "n/a", "na", "not available", "null"}:
+        return ""
+    return text
+
+
+def valid_synopsis_text(value):
+    text = safe_text(value)
+    if not text:
+        return ""
+    if text.lower() in {"yes", "no", "true", "false", "n/a", "na", "null", "none", "not available"}:
+        return ""
+    meaningful = re.sub(r"[^A-Za-z0-9]+", "", text)
+    if len(meaningful) < 30:
         return ""
     return text
 
@@ -752,6 +778,25 @@ def update_state_row(notice_id, updates):
             break
     if not found:
         return False
+    write_csv_preserve(OPPORTUNITY_STATE_PATH, fieldnames, rows)
+    return True
+
+
+def update_synopsis_for_notice(notice_id, synopsis):
+    fieldnames, rows = read_state()
+    for column in ["description", "synopsis"]:
+        if column not in fieldnames:
+            fieldnames.append(column)
+    found = False
+    for row in rows:
+        if safe_text(row.get("notice_id")) == notice_id:
+            row["description"] = synopsis
+            row["synopsis"] = synopsis
+            found = True
+            break
+    if not found:
+        return False
+    backup_state_file_for_synopsis()
     write_csv_preserve(OPPORTUNITY_STATE_PATH, fieldnames, rows)
     return True
 
@@ -1128,6 +1173,50 @@ def action_draft_response(notice_id):
     return {"status": "ok", "message": "Draft placeholder created.", "draft_path": rel}
 
 
+def fetch_synopsis_from_sam(notice_id):
+    try:
+        api_key = get_sam_api_key()
+    except RuntimeError:
+        return {
+            "status": "error",
+            "message": "SAM API key not configured. Check your .env file.",
+        }
+
+    row = row_for_notice(notice_id)
+    if not row:
+        return {"status": "error", "message": "notice_id not found."}
+
+    opportunity = dict(row)
+    opportunity["sam_notice_id"] = notice_id
+    opportunity["noticeId"] = notice_id
+    opportunity["id"] = notice_id
+
+    try:
+        with requests.Session() as session:
+            synopsis = valid_synopsis_text(fetch_notice_description(session, api_key, opportunity))
+
+            if not synopsis:
+                detail_link = f"https://api.sam.gov/prod/opportunities/v2/search?noticeid={notice_id}"
+                _response_json, raw_detail, error = fetch_sam_detail(session, api_key, detail_link)
+                if raw_detail:
+                    synopsis = valid_synopsis_text(extract_description_from_detail(raw_detail))
+                elif error:
+                    synopsis = ""
+
+        if not synopsis:
+            return {
+                "status": "empty",
+                "message": "SAM API returned no synopsis for this notice.",
+            }
+
+        if not update_synopsis_for_notice(notice_id, synopsis):
+            return {"status": "error", "message": "notice_id not found."}
+
+        return {"status": "ok", "synopsis": synopsis}
+    except Exception as error:
+        return {"status": "error", "message": safe_text(error)}
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "GovConScoutDashboard/0.1"
 
@@ -1157,6 +1246,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.handle_stage()
             if parsed.path == "/api/note":
                 return self.handle_note()
+            if parsed.path == "/api/fetch-synopsis":
+                return self.handle_fetch_synopsis()
             if parsed.path.startswith("/api/upload/"):
                 notice_id = unquote(parsed.path.rsplit("/", 1)[-1])
                 return self.handle_upload(notice_id)
@@ -1225,6 +1316,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "last_call_date": datetime.now().strftime("%Y-%m-%d") if note_type == "call_note" else row_for_notice(notice_id).get("last_call_date", ""),
         })
         return json_response(self, {"status": "ok"})
+
+    def handle_fetch_synopsis(self):
+        payload = self.read_json_body()
+        notice_id = safe_text(payload.get("notice_id"))
+        if not notice_id:
+            raise ValueError("notice_id is required")
+        return json_response(self, fetch_synopsis_from_sam(notice_id))
 
     def handle_upload(self, notice_id):
         if not notice_id:

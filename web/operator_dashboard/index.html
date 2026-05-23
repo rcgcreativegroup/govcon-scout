@@ -94,6 +94,13 @@
     }
     .sort-wrap select { width: 145px; }
     .tab-count { color: var(--secondary); }
+    .review-ineligible {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border-color: var(--amber);
+      font-size: 11px;
+      white-space: nowrap;
+    }
     .workflow {
       color: var(--secondary);
       border-bottom: 1px solid var(--border);
@@ -135,6 +142,51 @@
     .tag.high { color: var(--green); border-color: var(--green); }
     .tag.med { color: var(--amber); border-color: var(--amber); }
     .tag.low { color: var(--red); border-color: var(--red); }
+    .eligibility-dot {
+      width: 8px;
+      height: 8px;
+      display: inline-block;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      margin-right: 2px;
+    }
+    .eligibility-dot.eligible_now { background: var(--green); border-color: var(--green); }
+    .eligibility-dot.unrestricted { background: var(--secondary); border-color: var(--secondary); }
+    .eligibility-dot.watch_list { background: var(--amber); border-color: var(--amber); }
+    .eligibility-dot.ineligible_now { background: var(--red); border-color: var(--red); }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+    }
+    .modal {
+      width: min(560px, calc(100vw - 28px));
+      border: 1px solid var(--amber);
+      background: var(--card);
+      padding: 14px;
+      color: var(--text);
+      box-shadow: 0 0 0 1px #000;
+    }
+    .modal h2 {
+      color: var(--amber);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0 0 12px;
+    }
+    .modal pre {
+      white-space: pre-wrap;
+      color: var(--secondary);
+      border: 1px solid var(--border);
+      background: #101012;
+      padding: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
     .setaside-badge {
       display: inline-block;
       border: 1px solid var(--border);
@@ -304,6 +356,12 @@
     }
     .note-meta { color: var(--secondary); font-size: 10px; margin-bottom: 3px; }
     .nav-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+    .keyboard-legend {
+      margin-top: 10px;
+      color: #555555;
+      font: 10px "Courier New", monospace;
+      text-align: center;
+    }
     .status-line {
       color: var(--secondary);
       min-height: 18px;
@@ -343,6 +401,21 @@
       font-weight: 700;
       line-height: 1.45;
     }
+    .fetch-synopsis-btn {
+      margin-top: 8px;
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      background: transparent;
+      font: 11px "Courier New", monospace;
+      padding: 4px 12px;
+    }
+    .fetch-synopsis-status {
+      margin-top: 7px;
+      color: var(--secondary);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .fetch-synopsis-status.error { color: var(--red); }
     details summary { cursor: pointer; color: var(--cyan); }
     pre.wrap {
       white-space: pre-wrap;
@@ -383,7 +456,7 @@
   </div>
 
   <script>
-    const FILTERS = ["Active Review", "Needs Docs", "AI Ready", "AI Reviewed", "Sources Sought", "Follow-Up", "Flagged", "All", "Archive"];
+    const FILTERS = ["Active", "Watch List", "Needs Docs", "AI Reviewed", "Sources Sought", "Flagged", "All", "Archive"];
     const FULL_STAGE = { Ready: "Ready to Submit" };
     const ACTIVE_STAGES = ["Triage", "Intake", "Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"];
     const STAGE_ORDER = ["Triage", "Intake", "Manual Review", "AI Review", "Development", "Ready to Submit", "Execution", "Archive", "Done"];
@@ -404,7 +477,7 @@
     let opportunities = [];
     let config = {};
     let activeIndex = 0;
-    let activeFilter = "Active Review";
+    let activeFilter = "Active";
     let sortMode = "Priority";
     let searchTerm = "";
     let statusMessage = "";
@@ -423,6 +496,37 @@
     };
     const isFlagged = row => ["true", "yes", "1", "flagged"].includes(textOf(row.flagged));
     const containsAny = (value, terms) => terms.some(term => textOf(value).includes(term));
+    const setAsideText = row => [row.set_aside, row.set_aside_type, row.set_aside_description].filter(hasMeaningful).join(" ");
+    const setAsideEligibility = row => {
+      const text = textOf(setAsideText(row));
+      if (!text) return {
+        bucket: "unrestricted",
+        label: "unrestricted/unknown",
+        tooltip: "Unrestricted or unknown"
+      };
+      if (text.includes("edwosb") || text.includes("economically disadvantaged woman-owned")) {
+        return { bucket: "ineligible_now", label: "EDWOSB", tooltip: "Not currently prime eligible" };
+      }
+      if (text.includes("wosb") || text.includes("woman-owned") || text.includes("woman owned")) {
+        return { bucket: "ineligible_now", label: "WOSB", tooltip: "Not currently prime eligible" };
+      }
+      if (text.includes("hubzone")) {
+        return { bucket: "ineligible_now", label: "HUBZone", tooltip: "Not currently prime eligible" };
+      }
+      if (text.includes("8(a)") || /\b8a\b/.test(text)) {
+        return { bucket: "ineligible_now", label: "8(a)", tooltip: "Not currently prime eligible" };
+      }
+      if (text.includes("sdvosb") || text.includes("service-disabled veteran-owned") || text.includes("service disabled veteran owned")) {
+        return { bucket: "watch_list", label: "SDVOSB", tooltip: "Veteran set-aside — future certification path" };
+      }
+      if (text.includes("unrestricted") || text.includes("full and open")) {
+        return { bucket: "unrestricted", label: "unrestricted", tooltip: "Unrestricted or unknown" };
+      }
+      if (text.includes("total small business") || text.includes("small business set-aside") || text === "sba" || (text.includes("small business") && !text.includes("woman") && !text.includes("veteran") && !text.includes("hubzone"))) {
+        return { bucket: "eligible_now", label: "small business", tooltip: "Eligible/current pursuit set-aside" };
+      }
+      return { bucket: "unrestricted", label: "unrestricted/unknown", tooltip: "Unrestricted or unknown" };
+    };
     const isArchivedStatus = row => {
       if (["Archive", "Done"].includes(currentStage(row))) return true;
       return containsAny(row.operator_status, ARCHIVE_TERMS)
@@ -434,6 +538,7 @@
       if (isFlagged(row)) return true;
       if (!hasNoticeId(row)) return false;
       if (isArchivedStatus(row)) return false;
+      if (setAsideEligibility(row).bucket === "ineligible_now") return false;
       return ACTIVE_STAGES.includes(currentStage(row));
     };
     const notArchivedUnlessFlagged = row => isFlagged(row) || (!isArchivedStatus(row) && hasNoticeId(row));
@@ -469,7 +574,8 @@
         const ready = textOf(readiness(row).value);
         const sourceAvailable = !!sourceUrl(row);
         if (name === "All") return true;
-        if (name === "Active Review") return activeReview(row);
+        if (name === "Active") return activeReview(row);
+        if (name === "Watch List") return ["ineligible_now", "watch_list"].includes(setAsideEligibility(row).bucket);
         if (name === "Flagged") return isFlagged(row);
         if (name === "Archive") return isArchivedStatus(row);
         if (name === "Needs Docs") {
@@ -479,10 +585,6 @@
             || containsAny(row.current_stage, ["documents needed"])
             || ready.includes("documents needed")
             || (ready.includes("metadata only") && sourceAvailable);
-        }
-        if (name === "AI Ready") {
-          if (!notArchivedUnlessFlagged(row)) return false;
-          return ready.includes("ai review ready") || ready.includes("documents ready");
         }
         if (name === "AI Reviewed") {
           if (!notArchivedUnlessFlagged(row)) return false;
@@ -494,12 +596,6 @@
             || containsAny(row.solicitation_type, ["sources sought", "rfi", "sources_sought"])
             || hasMeaningful(row.sources_sought_status)
             || ready.includes("response plan ready");
-        }
-        if (name === "Follow-Up") {
-          return currentStage(row) === "Execution"
-            || containsAny(row.macro_stage, ["follow-up", "follow up"])
-            || containsAny(row.operator_status, ["follow-up", "follow up"])
-            || containsAny(row.current_stage, ["follow-up", "follow up"]);
         }
         return false;
       };
@@ -521,6 +617,7 @@
         ${FILTERS.map(stage =>
           `<button class="${stage === activeFilter ? "active" : ""}" data-stage="${h(stage)}">${h(stage)} <span class="tab-count">(${counts[stage] || 0})</span></button>`
         ).join("")}
+        <button class="review-ineligible" id="reviewIneligible">Review Ineligible Set-Asides</button>
         <div class="sort-wrap">
           <span class="label">SORT</span>
           <select id="sortMode">
@@ -541,6 +638,8 @@
         activeIndex = 0;
         render();
       };
+      const review = document.getElementById("reviewIneligible");
+      if (review) review.onclick = showIneligibleReview;
     }
 
     function countBy(predicate) {
@@ -612,7 +711,7 @@
     function renderCounts(items) {
       const tabCounts = filterCounts();
       const summary = [
-        ["Active", tabCounts["Active Review"] || 0],
+        ["Active", tabCounts["Active"] || 0],
         ["Flagged", tabCounts["Flagged"] || 0],
         ["Due This Week", countBy(dueThisWeek)],
         ["Total", opportunities.length]
@@ -629,10 +728,13 @@
       }
       queue.innerHTML = items.map((row, index) => {
         const band = String(row.fit_band || "").toLowerCase();
+        const eligibility = setAsideEligibility(row);
         return `
           <div class="queue-item ${index === activeIndex ? "active" : ""}" data-index="${index}">
             <div class="queue-title">${h(row.title || row.notice_id || "untitled")}</div>
             <div class="queue-meta">
+              <span class="eligibility-dot ${h(eligibility.bucket)}" title="${h(eligibility.tooltip)}"></span>
+              <span class="tag" title="${h(eligibility.tooltip)}">${h(eligibility.label)}</span>
               <span class="tag ${band}">${h(row.fit_band || "NA")}</span>
               <span class="tag">${h(row.lane || "lane n/a")}</span>
               <span class="tag">${h(currentStage(row))}</span>
@@ -646,6 +748,50 @@
           render();
         };
       });
+    }
+
+    function ineligibleReviewText() {
+      const typeCounts = {};
+      let protectedCount = 0;
+      for (const row of opportunities) {
+        const eligibility = setAsideEligibility(row);
+        if (!["ineligible_now", "watch_list"].includes(eligibility.bucket)) continue;
+        const key = setAsideText(row) || eligibility.label;
+        typeCounts[key] = (typeCounts[key] || 0) + 1;
+        if (eligibility.bucket === "ineligible_now" && isFlagged(row)) protectedCount += 1;
+      }
+      const lines = ["Not currently prime-eligible:"];
+      const entries = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+      if (entries.length) {
+        for (const [label, count] of entries) lines.push(`- ${label}: ${count}`);
+      } else {
+        lines.push("- none");
+      }
+      lines.push("");
+      lines.push(`Flagged — protected from exclusion: ${protectedCount}`);
+      lines.push("");
+      lines.push("These opportunities are available in the Watch List tab.");
+      lines.push("No changes have been made.");
+      return lines.join("\n");
+    }
+
+    function showIneligibleReview() {
+      const existing = document.getElementById("eligibilityModal");
+      if (existing) existing.remove();
+      const modal = document.createElement("div");
+      modal.id = "eligibilityModal";
+      modal.className = "modal-backdrop";
+      modal.innerHTML = `
+        <div class="modal" role="dialog" aria-modal="true">
+          <h2>Set-Aside Eligibility Review</h2>
+          <pre>${h(ineligibleReviewText())}</pre>
+          <button class="warn" id="closeEligibilityModal">Close</button>
+        </div>`;
+      document.body.appendChild(modal);
+      document.getElementById("closeEligibilityModal").onclick = () => modal.remove();
+      modal.onclick = event => {
+        if (event.target === modal) modal.remove();
+      };
     }
 
     function countdown(row) {
@@ -771,6 +917,30 @@
       return "";
     }
 
+    function textEmpty(value) {
+      const text = String(value || "").trim().toLowerCase();
+      return !text || ["not available", "none", "null", "n/a", "na", "yes", "no"].includes(text);
+    }
+
+    function canFetchSynopsis(row) {
+      const blockedTerms = ["pass", "archive", "ignore", "duplicate", "parked"];
+      const statusText = [row.operator_status, row.triage_status, row.current_stage].join(" ").toLowerCase();
+      const blocked = blockedTerms.some(term => statusText.includes(term));
+      return textEmpty(row.synopsis)
+        && textEmpty(row.description)
+        && !!sourceUrl(row)
+        && !["Archive", "Done"].includes(currentStage(row))
+        && !blocked
+        && !!row.notice_id;
+    }
+
+    function renderFetchSynopsis(row) {
+      if (!canFetchSynopsis(row)) return "";
+      return `
+        <button class="fetch-synopsis-btn" id="fetchSynopsisBtn" data-notice-id="${h(row.notice_id)}">⟳ Fetch Synopsis</button>
+        <div class="fetch-synopsis-status" id="fetchSynopsisStatus"></div>`;
+    }
+
     function renderDescription(row) {
       const text = descriptionText(row).trim();
       if (!text) {
@@ -780,6 +950,7 @@
           : "⚠ No description available — use source link above to view on SAM.gov/source portal or upload documents manually.";
         return `
           <div class="missing-desc">${h(message)}</div>
+          ${renderFetchSynopsis(row)}
           <div class="section">
             <h3>Helpful Existing Links</h3>
             ${renderLinks(row)}
@@ -885,7 +1056,7 @@
 
         <div class="section">
           <h3>Full Description</h3>
-          ${renderDescription(row)}
+          <div id="descriptionContent">${renderDescription(row)}</div>
         </div>
 
         <div class="section">
@@ -924,8 +1095,63 @@
           <span class="subtle">${activeIndex + 1} / ${items.length}</span>
           <button id="nextBtn">Next</button>
         </div>
+        <div class="keyboard-legend">J next · K prev · N pass · H hold · U pursue · S synopsis · / search</div>
       `;
       wireCardEvents(row, items);
+    }
+
+    function flashStatus(message, ms = 1000) {
+      statusMessage = message;
+      const line = document.getElementById("statusLine");
+      if (line) line.textContent = message;
+      setTimeout(() => {
+        if (statusMessage === message) {
+          statusMessage = "";
+          const currentLine = document.getElementById("statusLine");
+          if (currentLine) currentLine.textContent = "";
+        }
+      }, ms);
+    }
+
+    async function fetchSynopsis(row) {
+      const button = document.getElementById("fetchSynopsisBtn");
+      const status = document.getElementById("fetchSynopsisStatus");
+      if (!button || !status) return;
+      button.disabled = true;
+      button.textContent = "⟳ Fetching...";
+      status.className = "fetch-synopsis-status";
+      status.textContent = "";
+      try {
+        const result = await api("/api/fetch-synopsis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notice_id: row.notice_id })
+        });
+        if (result.status === "ok" && result.synopsis) {
+          row.description = result.synopsis;
+          row.synopsis = result.synopsis;
+          const container = document.getElementById("descriptionContent");
+          if (container) container.innerHTML = renderDescription(row);
+          return;
+        }
+        if (result.status === "empty") {
+          status.textContent = "SAM returned no description for this notice — try uploading documents manually or use the source link above";
+          button.disabled = false;
+          button.textContent = "⟳ Fetch Synopsis";
+          return;
+        }
+        status.className = "fetch-synopsis-status error";
+        status.textContent = result.message && result.message.includes("SAM API key")
+          ? "SAM API key not configured — check .env file"
+          : "API error — check terminal output and try again";
+        button.disabled = false;
+        button.textContent = "⟳ Fetch Synopsis";
+      } catch (error) {
+        status.className = "fetch-synopsis-status error";
+        status.textContent = "API error — check terminal output and try again";
+        button.disabled = false;
+        button.textContent = "⟳ Fetch Synopsis";
+      }
     }
 
     function render() {
@@ -1044,6 +1270,28 @@
       }
     }
 
+    function toggleHold(row) {
+      row.flagged = isFlagged(row) ? "" : "true";
+      statusMessage = isFlagged(row) ? "Held / flagged for review." : "Hold removed.";
+      renderFilters();
+      render();
+    }
+
+    function shortcutFetchSynopsis(row) {
+      const button = document.getElementById("fetchSynopsisBtn");
+      if (button) {
+        button.click();
+        return;
+      }
+      if (descriptionText(row).trim()) {
+        flashStatus("Synopsis already loaded");
+        return;
+      }
+      if (!sourceUrl(row)) {
+        flashStatus("No source URL — cannot fetch synopsis");
+      }
+    }
+
     function wireCardEvents(row, items) {
       document.querySelectorAll("[data-copy]").forEach(btn => {
         btn.onclick = async () => {
@@ -1055,6 +1303,8 @@
       document.querySelectorAll("[data-action-label]").forEach(btn => {
         btn.onclick = () => handleButton(row, btn.dataset.actionLabel);
       });
+      const fetchButton = document.getElementById("fetchSynopsisBtn");
+      if (fetchButton) fetchButton.onclick = () => fetchSynopsis(row);
       const prev = document.getElementById("prevBtn");
       const next = document.getElementById("nextBtn");
       if (prev) prev.onclick = () => { activeIndex = Math.max(0, activeIndex - 1); render(); };
@@ -1113,12 +1363,14 @@
       } else if (event.key.toLowerCase() === "k") {
         activeIndex = Math.max(0, activeIndex - 1);
         render();
-      } else if (event.key.toLowerCase() === "y" && currentStage(row) === "Triage") {
-        handleButton(row, "YES — Intake Docs");
       } else if (event.key.toLowerCase() === "n") {
         handleButton(row, "PASS");
-      } else if (event.key.toLowerCase() === "m") {
-        handleButton(row, "Manual Review");
+      } else if (event.key.toLowerCase() === "h") {
+        toggleHold(row);
+      } else if (event.key.toLowerCase() === "u" && currentStage(row) === "Triage") {
+        handleButton(row, "YES — Intake Docs");
+      } else if (event.key.toLowerCase() === "s") {
+        shortcutFetchSynopsis(row);
       } else if (event.key === "Enter") {
         const note = document.getElementById("noteText");
         if (note) note.focus();
