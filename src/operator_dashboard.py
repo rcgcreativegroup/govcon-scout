@@ -65,6 +65,7 @@ DASHBOARD_COLUMNS = [
     "source",
     "naics",
     "lane",
+    "set_aside",
     "due_date",
     "deadline_time",
     "deadline_tz",
@@ -139,6 +140,20 @@ LOCATION_ZIP_FIELDS = [
     "zip",
     "zipcode",
     "postal_code",
+]
+
+SET_ASIDE_FIELDS = [
+    "set_aside",
+    "setaside",
+    "set_aside_type",
+    "set_aside_code",
+    "type_of_set_aside",
+    "solicitation_set_aside",
+    "setAside",
+    "setAsideCode",
+    "setAsideDescription",
+    "set_aside_description",
+    "set_aside_hard_gate",
 ]
 
 RELATED_PATH_COLUMNS = [
@@ -451,6 +466,34 @@ def fit_band(value):
     return "LOW"
 
 
+def normalize_set_aside(value):
+    text = meaningful_text(value)
+    if not text:
+        return ""
+    lowered = text.lower()
+    compact = re.sub(r"[^a-z0-9]+", "", lowered)
+
+    if lowered in {"no", "none"}:
+        return "Unrestricted"
+    if "unrestrict" in lowered or "full and open" in lowered:
+        return "Unrestricted"
+    if "service-disabled" in lowered or "service disabled" in lowered or "sdvosb" in lowered:
+        return "Service-Disabled Veteran-Owned Small Business"
+    if "economically disadvantaged" in lowered or "edwosb" in lowered:
+        return "Economically Disadvantaged Woman-Owned Small Business"
+    if "woman" in lowered or "women" in lowered or "wosb" in lowered:
+        return "Woman-Owned Small Business"
+    if "hubzone" in compact:
+        return "HUBZone"
+    if "8(a)" in lowered or compact == "8a" or "8aprogram" in compact:
+        return "8(a)"
+    if "total small business" in lowered:
+        return "Total Small Business"
+    if "small business" in lowered or lowered == "sba":
+        return "Small Business Set-Aside"
+    return text
+
+
 def artifact_exists(row, column):
     value = safe_text(row.get(column))
     return bool(value and (BASE_DIR / value).exists())
@@ -527,6 +570,7 @@ def ensure_state_schema():
         row["agency"] = safe_text(row.get("agency")) or safe_text(export_row.get("department_ind_agency"))
         row["naics"] = safe_text(row.get("naics")) or safe_text(export_row.get("naics_code"))
         row["lane"] = safe_text(row.get("lane")) or lanes.get(row.get("naics"), "")
+        row["set_aside"] = normalize_set_aside(first_value((row, SET_ASIDE_FIELDS), (export_row, SET_ASIDE_FIELDS)))
         row["fit_score"] = safe_text(row.get("fit_score")) or safe_text(export_row.get("fit_score"))
         row["fit_band"] = safe_text(row.get("fit_band")) or fit_band(row.get("fit_score"))
         source_url = first_value((row, SOURCE_URL_FIELDS), (export_row, SOURCE_URL_FIELDS))

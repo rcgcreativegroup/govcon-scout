@@ -124,6 +124,38 @@
     .tag.high { color: var(--green); border-color: var(--green); }
     .tag.med { color: var(--amber); border-color: var(--amber); }
     .tag.low { color: var(--red); border-color: var(--red); }
+    .setaside-badge {
+      display: inline-block;
+      border: 1px solid var(--border);
+      padding: 3px 6px;
+      color: var(--secondary);
+      background: #101012;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .setaside-badge.eligible {
+      color: var(--green);
+      border-color: var(--green);
+      background: var(--go-bg);
+    }
+    .setaside-badge.caution {
+      color: var(--amber);
+      border-color: var(--amber);
+      background: var(--amber-bg);
+    }
+    .setaside-badge.neutral {
+      color: var(--secondary);
+      border-color: var(--border);
+    }
+    .copy-tools {
+      margin-top: 9px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      color: var(--secondary);
+    }
     .card {
       background: var(--card);
       padding: 14px;
@@ -230,6 +262,40 @@
       min-height: 18px;
       margin-top: 8px;
     }
+    .source-row {
+      margin-top: 7px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      color: var(--secondary);
+    }
+    .source-row .label {
+      display: inline;
+      margin: 0;
+    }
+    .source-row a {
+      border: 1px solid var(--border);
+      padding: 4px 7px;
+      color: var(--cyan);
+      background: #101012;
+    }
+    .desc-preview {
+      color: #e8e8e8;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.45;
+      margin-bottom: 8px;
+    }
+    .missing-desc {
+      border: 1px solid var(--amber);
+      background: var(--amber-bg);
+      color: var(--amber);
+      padding: 9px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
     details summary { cursor: pointer; color: var(--cyan); }
     pre.wrap {
       white-space: pre-wrap;
@@ -319,7 +385,7 @@
       const notes = (row.notes || []).map(n => n.note_text).join(" ");
       return [
         row.notice_id, row.title, row.agency, row.source, row.lane, row.naics,
-        row.macro_stage, row.recommended_next_action, row.description, notes
+        row.set_aside, row.macro_stage, row.recommended_next_action, row.description, notes
       ].join(" ").toLowerCase();
     }
 
@@ -402,9 +468,46 @@
       return `<span class="countdown ok">${days} days remaining${close}</span>`;
     }
 
+    function sourceUrl(row) {
+      return row.source_url || row.ui_link || row.url || row.link || row.sam_url || row.notice_url || "";
+    }
+
+    function sourceLinkLabel(url) {
+      return String(url || "").toLowerCase().includes("sam.gov") ? "View on SAM.gov" : "Open Source";
+    }
+
+    function renderSourceRow(row) {
+      const url = sourceUrl(row);
+      const source = row.source || "Source";
+      if (url) {
+        return `<div class="source-row"><span class="label">SOURCE</span><span>${h(source)}</span><a href="${h(url)}" target="_blank" rel="noopener">${sourceLinkLabel(url)}</a></div>`;
+      }
+      if (row.notice_id) {
+        const searchUrl = `https://sam.gov/search/?keywords=${encodeURIComponent(row.notice_id)}`;
+        return `<div class="source-row"><span class="label">SOURCE</span><span>${h(source)}</span><a href="${searchUrl}" target="_blank" rel="noopener">Search SAM.gov</a></div>`;
+      }
+      return `<div class="source-row"><span class="label">SOURCE</span><span>${h(source)}</span><span class="muted">source link not available</span></div>`;
+    }
+
     function copyButton(label, value) {
       if (!value) return "";
       return `<button data-copy="${h(value)}">${h(label)}</button>`;
+    }
+
+    function setAsideDisplay(value) {
+      return value || "not available";
+    }
+
+    function setAsideClass(value) {
+      const text = String(value || "").toLowerCase();
+      if (!text) return "neutral";
+      if (text.includes("total small business") || text === "small business" || text.includes("small business set-aside")) return "eligible";
+      if (text.includes("sdvosb") || text.includes("service-disabled") || text.includes("woman-owned") || text.includes("wosb") || text.includes("edwosb") || text.includes("hubzone") || text.includes("8(a)")) return "caution";
+      return "neutral";
+    }
+
+    function renderSetAside(value) {
+      return `<span class="setaside-badge ${setAsideClass(value)}">${h(setAsideDisplay(value))}</span>`;
     }
 
     function renderRibbon(stage) {
@@ -448,6 +551,33 @@
       return `<div class="links">${links.map(link =>
         `<a href="${fileUrl(link.path)}" target="_blank" rel="noopener">${h(link.label)}</a>`
       ).join("")}</div>`;
+    }
+
+    function descriptionText(row) {
+      const values = [row.description, row.full_description, row.synopsis, row.notice_description, row.body, row.summary];
+      for (const value of values) {
+        const text = String(value || "").trim();
+        if (!text) continue;
+        if (["no", "yes", "none", "n/a", "na", "not available", "null"].includes(text.toLowerCase())) continue;
+        return text;
+      }
+      return "";
+    }
+
+    function renderDescription(row) {
+      const text = descriptionText(row).trim();
+      if (!text) {
+        return `
+          <div class="missing-desc">⚠ No description available — use source link above to view on SAM.gov/source portal or upload documents manually.</div>
+          <div class="section">
+            <h3>Helpful Existing Links</h3>
+            ${renderLinks(row)}
+          </div>`;
+      }
+      const preview = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+      return `
+        <div class="desc-preview">${h(preview)}</div>
+        <details><summary>expand full description</summary><pre class="wrap">${h(text)}</pre></details>`;
     }
 
     function renderUpload(row) {
@@ -502,6 +632,7 @@
           <div>
             <div class="title">${h(row.title || "untitled opportunity")}</div>
             <div class="subtle">${h(row.source || "source n/a")} | ${h(noticeId(row))}</div>
+            ${renderSourceRow(row)}
           </div>
           <div>
             <span class="tag ${String(row.fit_band || "").toLowerCase()}">${h(row.fit_band || "NA")}</span>
@@ -514,7 +645,8 @@
           <div class="meta"><span class="label">Notice / Lead ID</span><span class="value">${val(noticeId(row))}</span>${copyButton("copy", row.notice_id)}</div>
           <div class="meta"><span class="label">Due</span><span class="value">${countdown(row)}</span></div>
           <div class="meta"><span class="label">NAICS / Lane</span><span class="value">${val(row.naics)} / ${val(row.lane)}</span>${copyButton("copy NAICS", row.naics)}</div>
-          <div class="meta"><span class="label">UEI</span><span class="value">${UEI}</span>${copyButton("copy UEI", UEI)}</div>
+          <div class="meta"><span class="label">Place of Performance</span><span class="value">${val(row.place_of_performance)}</span></div>
+          <div class="meta"><span class="label">Set-Aside</span><span class="value">${renderSetAside(row.set_aside)}</span></div>
           <div class="meta"><span class="label">Buyer Email</span><span class="value">${val(row.buyer_email)}</span>${copyButton("copy email", row.buyer_email)}</div>
           <div class="meta"><span class="label">Operator Status</span><span class="value">${val(row.operator_status)}</span></div>
           <div class="meta"><span class="label">Recommended Next Action</span><span class="value">${val(row.recommended_next_action)}</span></div>
@@ -541,7 +673,7 @@
 
         <div class="section">
           <h3>Full Description</h3>
-          <details><summary>expand description</summary><pre class="wrap">${h(row.description || "not available")}</pre></details>
+          ${renderDescription(row)}
         </div>
 
         <div class="section">
@@ -570,6 +702,7 @@
         <div class="section">
           <h3>Related Outputs</h3>
           ${renderLinks(row)}
+          <div class="copy-tools"><span class="label">Copy Tools</span><span>${UEI}</span>${copyButton("copy UEI", UEI)}</div>
         </div>
 
         ${renderNotes(row)}
