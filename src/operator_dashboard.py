@@ -3,6 +3,7 @@ import warnings
 
 warnings.filterwarnings("ignore", message="'cgi' is deprecated.*", category=DeprecationWarning)
 
+import ast
 import cgi
 import csv
 import json
@@ -119,10 +120,20 @@ LOCATION_FIELDS = [
     "place_of_performance_state",
     "place_of_performance_zip",
     "pop",
+    "streetAddress",
+    "street_address",
+    "address",
     "city",
     "state",
+    "province",
+    "region",
+    "country",
     "location",
     "performance_location",
+    "postalCode",
+    "postal_code",
+    "name",
+    "code",
 ]
 
 LOCATION_CITY_FIELDS = [
@@ -133,12 +144,15 @@ LOCATION_CITY_FIELDS = [
 LOCATION_STATE_FIELDS = [
     "place_of_performance_state",
     "state",
+    "province",
+    "region",
 ]
 
 LOCATION_ZIP_FIELDS = [
     "place_of_performance_zip",
     "zip",
     "zipcode",
+    "postalCode",
     "postal_code",
 ]
 
@@ -390,10 +404,125 @@ def is_numeric_code(value):
     return bool(re.fullmatch(r"\d+", text))
 
 
+def is_empty_location_value(value):
+    if value is None:
+        return True
+    if isinstance(value, (dict, list, tuple)):
+        return not any(not is_empty_location_value(item) for item in (
+            value.values() if isinstance(value, dict) else value
+        ))
+    return safe_text(value).lower() in {"", "none", "null", "n/a", "na", "{}"}
+
+
+def clean_country_piece(value, has_locality=False):
+    text = safe_text(value)
+    if has_locality and text.upper() in {"UNITED STATES", "USA", "US"}:
+        return ""
+    return text
+
+
+def location_scalar(value):
+    if is_empty_location_value(value):
+        return ""
+    if isinstance(value, dict):
+        for key in [
+            "name",
+            "city",
+            "state",
+            "province",
+            "region",
+            "streetAddress",
+            "street_address",
+            "address",
+            "country",
+            "code",
+        ]:
+            text = location_scalar(value.get(key))
+            if text:
+                return text
+        return ""
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            text = location_scalar(item)
+            if text:
+                return text
+        return ""
+    text = safe_text(value)
+    return "" if text in {"{}", "[]"} else text
+
+
+def parse_structured_location(value):
+    text = safe_text(value)
+    if not text or ("{" not in text and "[" not in text):
+        return None
+    for candidate in [text, f"[{text}]"]:
+        try:
+            return json.loads(candidate)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        try:
+            return ast.literal_eval(candidate)
+        except (SyntaxError, ValueError, TypeError):
+            pass
+    return None
+
+
+def format_structured_location(value):
+    if is_empty_location_value(value):
+        return ""
+
+    if isinstance(value, (list, tuple)):
+        pieces = []
+        for item in value:
+            text = format_structured_location(item)
+            if text and text != "not available":
+                pieces.append(text)
+        pieces = [piece for piece in pieces if piece.upper() not in {"UNITED STATES", "USA", "US"}]
+        return ", ".join(dict.fromkeys(pieces[:3]))
+
+    if not isinstance(value, dict):
+        text = location_scalar(value)
+        if not text:
+            return ""
+        if is_numeric_code(text):
+            return f"Location code: {text} — name not available"
+        return text
+
+    city = location_scalar(value.get("city"))
+    state = (
+        location_scalar(value.get("state"))
+        or location_scalar(value.get("province"))
+        or location_scalar(value.get("region"))
+    )
+    country = location_scalar(value.get("country"))
+    address = location_scalar(value.get("streetAddress")) or location_scalar(value.get("street_address")) or location_scalar(value.get("address"))
+    name = location_scalar(value.get("name"))
+    code = location_scalar(value.get("code"))
+
+    pieces = [piece for piece in [city, state] if piece]
+    country = clean_country_piece(country, has_locality=bool(pieces))
+    if country:
+        pieces.append(country)
+    if pieces:
+        return ", ".join(pieces)
+    if address:
+        return address
+    if name:
+        return name
+    if code and is_numeric_code(code):
+        return f"Location code: {code} — name not available"
+    if code:
+        return code
+    return ""
+
+
 def clean_location_piece(value):
     text = safe_text(value)
     if not text:
         return ""
+    structured = parse_structured_location(text)
+    if structured is not None:
+        return format_structured_location(structured)
     name_match = re.search(r"'name':\s*'([^']+)'", text)
     if name_match:
         return name_match.group(1)
@@ -412,22 +541,19 @@ def normalize_place(value):
     if is_numeric_code(text):
         return f"Location code: {text} — name not available"
 
-    names = re.findall(r"'name':\s*'([^']+)'", text)
-    if not names:
-        names = re.findall(r'"name"\s*:\s*"([^"]+)"', text)
-    if len(names) >= 2:
-        useful_names = [
-            name for name in names
-            if name.upper() not in {"UNITED STATES", "USA"}
-        ]
-        if len(useful_names) >= 2:
-            return f"{useful_names[0]}, {useful_names[1]}"
-        return ", ".join(useful_names or names)
-    if len(names) == 1:
-        return names[0]
+    structured = parse_structured_location(text)
+    if structured is not None:
+        formatted = format_structured_location(structured)
+        return formatted or "not available"
+
     if "{" in text or "}" in text:
         cleaned = re.sub(r"[{}\\[\\]'\"]+", " ", text)
-        cleaned = re.sub(r"\b(code|name)\b\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(
+            r"\b(streetAddress|street_address|address|city|state|province|region|country|zip|postalCode|postal_code|code|name)\b\s*:\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
         cleaned = re.sub(r"\s*,\s*", ", ", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
         if cleaned and not is_numeric_code(cleaned):
@@ -666,6 +792,119 @@ def folder_has_files(folder):
     return folder.exists() and any(path.is_file() for path in folder.iterdir())
 
 
+def path_has_files(path):
+    if path.is_file():
+        return True
+    if path.is_dir():
+        return any(item.is_file() for item in path.iterdir())
+    return False
+
+
+def row_has_text(row, *fields):
+    return any(meaningful_text(row.get(field)) for field in fields)
+
+
+def local_document_evidence(notice_id):
+    folders = [
+        DOWNLOADS_DIR / notice_id,
+        MANUAL_UPLOADS_DIR / notice_id,
+    ]
+    return any(path_has_files(folder) for folder in folders)
+
+
+def local_document_folder_exists(notice_id):
+    return (DOWNLOADS_DIR / notice_id).exists() or (MANUAL_UPLOADS_DIR / notice_id).exists()
+
+
+def report_file_exists(notice_id, *paths):
+    for path in paths:
+        if path and path.exists():
+            return True
+    return False
+
+
+def infer_data_readiness(row):
+    notice_id = safe_text(row.get("notice_id"))
+    has_docs = local_document_evidence(notice_id)
+    has_doc_folder = local_document_folder_exists(notice_id)
+    has_description = row_has_text(row, "description", "synopsis", "full_description", "notice_description", "body", "summary")
+    has_ai_fields = row_has_text(row, "ai_summary", "requirements", "disqualifiers")
+
+    bid_no_bid = REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_bid_no_bid.md"
+    decision = REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_decision_report.md"
+    compliance = REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_compliance_matrix.md"
+    sources_plan = REPORTS_DIR / "sources_sought" / f"{notice_id}_sources_sought_plan.md"
+    manual_review = REPORTS_DIR / "manual_review" / f"{notice_id}_manual_review.md"
+    analysis_packet = REPORTS_DIR / "analysis_packets" / f"{notice_id}.md"
+
+    has_ai_outputs = report_file_exists(notice_id, bid_no_bid, decision, compliance)
+    if has_ai_fields or has_ai_outputs:
+        return {
+            "value": "AI Reviewed",
+            "style": "green",
+            "tag": "reviewed",
+            "helper": "AI review outputs exist. Requirements and disqualifiers should be available.",
+        }
+
+    if sources_plan.exists():
+        return {
+            "value": "Response Plan Ready",
+            "style": "green",
+            "tag": "plan ready",
+            "helper": "Sources-sought/RFI response plan exists. Review and prepare next outreach or response step.",
+        }
+
+    if manual_review.exists():
+        helper = "Manual review is needed before automated processing."
+        if not has_docs:
+            helper = "Manual review report exists, but no local documents are available yet."
+        return {
+            "value": "Manual Review Needed",
+            "style": "amber",
+            "tag": "manual",
+            "helper": helper,
+        }
+
+    if has_docs:
+        return {
+            "value": "AI Review Ready",
+            "style": "cyan",
+            "tag": "AI ready",
+            "helper": "Documents are available. Run AI Review to extract requirements and disqualifiers.",
+        }
+
+    if analysis_packet.exists() and not has_ai_fields:
+        return {
+            "value": "AI Review Ready",
+            "style": "cyan",
+            "tag": "AI ready",
+            "helper": "Analysis packet exists — run backfill to populate card fields.",
+        }
+
+    if has_doc_folder:
+        return {
+            "value": "Documents Ready",
+            "style": "cyan",
+            "tag": "docs ready",
+            "helper": "Documents appear to be available. Run AI Review if requirements are not shown.",
+        }
+
+    if (safe_text(row.get("source_url")) or safe_text(row.get("ui_link"))) and not has_description:
+        return {
+            "value": "Documents Needed",
+            "style": "amber",
+            "tag": "docs needed",
+            "helper": "No synopsis or local documents available yet. Use the source link above, Prepare SAM Docs, or upload documents manually before AI review.",
+        }
+
+    return {
+        "value": "Metadata Only",
+        "style": "muted",
+        "tag": "metadata",
+        "helper": "Only scan metadata is available. Manual lookup may be required.",
+    }
+
+
 def related_links(row):
     notice_id = safe_text(row.get("notice_id"))
     links = []
@@ -712,6 +951,7 @@ def enriched_opportunities():
         row["notes"] = notes_index.get(notice_id, [])
         row["related_links"] = related_links(row)
         row["document_checklist"] = document_checklist(row)
+        row["data_readiness"] = infer_data_readiness(row)
     return rows
 
 

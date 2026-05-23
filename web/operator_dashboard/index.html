@@ -148,6 +148,42 @@
       color: var(--secondary);
       border-color: var(--border);
     }
+    .readiness-badge {
+      display: inline-block;
+      border: 1px solid var(--border);
+      padding: 3px 6px;
+      background: #101012;
+      color: var(--secondary);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .readiness-badge.green {
+      color: var(--green);
+      border-color: var(--green);
+      background: var(--go-bg);
+    }
+    .readiness-badge.cyan {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: #101b24;
+    }
+    .readiness-badge.amber {
+      color: var(--amber);
+      border-color: var(--amber);
+      background: var(--amber-bg);
+    }
+    .readiness-badge.muted {
+      color: var(--secondary);
+      border-color: var(--border);
+      background: #101012;
+    }
+    .readiness-helper {
+      margin-top: 5px;
+      color: var(--secondary);
+      font-size: 11px;
+      line-height: 1.35;
+    }
     .copy-tools {
       margin-top: 9px;
       display: flex;
@@ -383,9 +419,11 @@
 
     function searchableText(row) {
       const notes = (row.notes || []).map(n => n.note_text).join(" ");
+      const readiness = row.data_readiness || {};
       return [
         row.notice_id, row.title, row.agency, row.source, row.lane, row.naics,
-        row.set_aside, row.macro_stage, row.recommended_next_action, row.description, notes
+        row.set_aside, readiness.value, readiness.tag, readiness.helper,
+        row.macro_stage, row.recommended_next_action, row.description, notes
       ].join(" ").toLowerCase();
     }
 
@@ -444,6 +482,7 @@
               <span class="tag ${band}">${h(row.fit_band || "NA")}</span>
               <span class="tag">${h(row.lane || "lane n/a")}</span>
               <span class="tag">${h(currentStage(row))}</span>
+              <span class="tag">${h(readinessTag(row))}</span>
             </div>
           </div>`;
       }).join("");
@@ -510,6 +549,20 @@
       return `<span class="setaside-badge ${setAsideClass(value)}">${h(setAsideDisplay(value))}</span>`;
     }
 
+    function readiness(row) {
+      return row.data_readiness || { value: "Metadata Only", style: "muted", tag: "metadata", helper: "Only scan metadata is available. Manual lookup may be required." };
+    }
+
+    function readinessTag(row) {
+      return readiness(row).tag || readiness(row).value || "metadata";
+    }
+
+    function renderReadiness(row) {
+      const state = readiness(row);
+      const helper = state.helper ? `<div class="readiness-helper">${h(state.helper)}</div>` : "";
+      return `<span class="readiness-badge ${h(state.style || "muted")}">${h(state.value || "Metadata Only")}</span>${helper}`;
+    }
+
     function renderRibbon(stage) {
       const stages = config.stage_enums?.stages || [];
       const current = stages.indexOf(stage);
@@ -567,8 +620,12 @@
     function renderDescription(row) {
       const text = descriptionText(row).trim();
       if (!text) {
+        const ready = readiness(row);
+        const message = ["Metadata Only", "Documents Needed"].includes(ready.value)
+          ? "⚠ No synopsis or local documents available yet. Use the source link above, Prepare SAM Docs, or upload documents manually before AI review."
+          : "⚠ No description available — use source link above to view on SAM.gov/source portal or upload documents manually.";
         return `
-          <div class="missing-desc">⚠ No description available — use source link above to view on SAM.gov/source portal or upload documents manually.</div>
+          <div class="missing-desc">${h(message)}</div>
           <div class="section">
             <h3>Helpful Existing Links</h3>
             ${renderLinks(row)}
@@ -647,6 +704,7 @@
           <div class="meta"><span class="label">NAICS / Lane</span><span class="value">${val(row.naics)} / ${val(row.lane)}</span>${copyButton("copy NAICS", row.naics)}</div>
           <div class="meta"><span class="label">Place of Performance</span><span class="value">${val(row.place_of_performance)}</span></div>
           <div class="meta"><span class="label">Set-Aside</span><span class="value">${renderSetAside(row.set_aside)}</span></div>
+          <div class="meta"><span class="label">Data Readiness</span><span class="value">${renderReadiness(row)}</span></div>
           <div class="meta"><span class="label">Buyer Email</span><span class="value">${val(row.buyer_email)}</span>${copyButton("copy email", row.buyer_email)}</div>
           <div class="meta"><span class="label">Operator Status</span><span class="value">${val(row.operator_status)}</span></div>
           <div class="meta"><span class="label">Recommended Next Action</span><span class="value">${val(row.recommended_next_action)}</span></div>
