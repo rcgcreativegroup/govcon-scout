@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_TRIAGE_BOARD = "reports/triage/govcon_triage_board.md"
 DEFAULT_MYBIDMATCH_TRIAGE = "reports/mybidmatch/mybidmatch_triage.md"
+DEFAULT_MYBIDMATCH_RESOLVED = "data/mybidmatch/mybidmatch_resolved.csv"
 DEFAULT_GOVCON_CSV = "exports/govcon_scout_opportunities_latest.csv"
 DEFAULT_MYBIDMATCH_CSV = "data/mybidmatch/mybidmatch_opportunities.csv"
 DEFAULT_OUTPUT = "reports/triage/govcon_triage_review_pack.md"
@@ -111,6 +112,12 @@ def read_csv_rows(path):
         return []
     with path.open("r", encoding="utf-8", newline="") as file:
         return [dict(row) for row in csv.DictReader(file)]
+
+
+def normalize_lookup_text(value):
+    text = safe_text(value).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
 
 
 def parse_board_table(lines, section):
@@ -245,6 +252,44 @@ def parse_mybidmatch_triage(path):
         return {section: [] for section in MYBIDMATCH_SECTIONS}
     lines = text.splitlines()
     return {section: parse_mybidmatch_table(lines, section) for section in MYBIDMATCH_SECTIONS}
+
+
+def resolution_key(title, source_url="", source_file=""):
+    return (
+        normalize_lookup_text(title),
+        safe_text(source_url),
+        safe_text(source_file),
+    )
+
+
+def build_resolution_index(rows):
+    index = {}
+    for row in rows:
+        key = resolution_key(
+            row.get("mybidmatch_title"),
+            row.get("mybidmatch_source_url"),
+            row.get("mybidmatch_source_file"),
+        )
+        if key[0]:
+            index[key] = row
+            index[(key[0], "", "")] = row
+    return index
+
+
+def attach_mybidmatch_resolution(item, resolution_index):
+    item = dict(item)
+    key = resolution_key(item.get("title"), item.get("source_url"), item.get("source_file"))
+    resolution = resolution_index.get(key) or resolution_index.get((key[0], "", ""))
+    item["resolution"] = resolution or {}
+    return item
+
+
+def mybidmatch_resolution_counts(rows):
+    counts = {}
+    for row in rows:
+        status = safe_text(row.get("resolution_status")) or "Unknown"
+        counts[status] = counts.get(status, 0) + 1
+    return counts
 
 
 def infer_title_from_file(path, notice_id):
@@ -583,22 +628,49 @@ def mybidmatch_related_outputs(item):
     return ", ".join(links) if links else "Manual review needed - insufficient structured data."
 
 
-def mybidmatch_table(items):
+def mybidmatch_resolution_text(item, field, default=""):
+    resolution = item.get("resolution") or {}
+    return safe_text(resolution.get(field)) or default
+
+
+def mybidmatch_table(items, include_resolution=False):
     if not items:
         return "None."
 
-    lines = [
-        "| Title | Agency | Lane | Confidence | Recommended Next Action | Source / Related Output |",
-        "|---|---|---|---|---|---|",
-    ]
+    if include_resolution:
+        lines = [
+            "| Title | Agency | Lane | Resolution | Matched Notice | Matched Title | Score | Recommended Next Action | Source / Related Output |",
+            "|---|---|---|---|---|---|---:|---|---|",
+        ]
+    else:
+        lines = [
+            "| Title | Agency | Lane | Confidence | Recommended Next Action | Source / Related Output |",
+            "|---|---|---|---|---|---|",
+        ]
+
     for item in sorted(items, key=mybidmatch_score, reverse=True):
         title = safe_text(item.get("title")).replace("|", "/")
         agency = safe_text(item.get("agency")).replace("|", "/")
         lane = safe_text(item.get("lane")).replace("|", "/")
-        confidence = safe_text(item.get("confidence")).replace("|", "/") or "unknown"
-        action = safe_text(item.get("action")).replace("|", "/")
         related = mybidmatch_related_outputs(item).replace("|", "/")
-        lines.append(f"| {title} | {agency} | {lane} | {confidence} | {action} | {related} |")
+        if include_resolution:
+            status = mybidmatch_resolution_text(item, "resolution_status", "Not resolved").replace("|", "/")
+            notice = mybidmatch_resolution_text(item, "matched_notice_id", "—").replace("|", "/")
+            matched_title = mybidmatch_resolution_text(item, "matched_govcon_title", "—").replace("|", "/")
+            score = mybidmatch_resolution_text(item, "similarity_score", "—")
+            action = mybidmatch_resolution_text(
+                item,
+                "recommended_next_action",
+                safe_text(item.get("action")) or "Manual lookup required",
+            ).replace("|", "/")
+            lines.append(
+                f"| {title} | {agency} | {lane} | {status} | {notice} | "
+                f"{matched_title} | {score} | {action} | {related} |"
+            )
+        else:
+            confidence = safe_text(item.get("confidence")).replace("|", "/") or "unknown"
+            action = safe_text(item.get("action")).replace("|", "/")
+            lines.append(f"| {title} | {agency} | {lane} | {confidence} | {action} | {related} |")
     return "\n".join(lines)
 
 
@@ -753,6 +825,25 @@ def item_table(items):
 
 
 def is_mybidmatch_queue_candidate(item):
+    resolution = item.get("resolution") or {}
+    status = resolution.get("resolution_status")
+    if status == "Confirmed GovCon Scout Match":
+        return True
+    if status == "Possible GovCon Scout Match":
+        return (
+            item.get("bucket") == "Priority Review"
+            and item.get("confidence", "").lower() == "high"
+            and item.get("lane") in STRATEGIC_MYBIDMATCH_LANES
+            and is_strategic_title(item.get("title", ""))
+            and not is_obvious_poor_fit(item.get("title", ""))
+        )
+    if status in {
+        "State/Local/Non-SAM Lead",
+        "Needs Manual Lookup",
+        "Duplicate / Already Covered",
+    }:
+        return False
+
     return (
         item.get("bucket") == "Priority Review"
         and item.get("confidence", "").lower() == "high"
@@ -765,6 +856,7 @@ def is_mybidmatch_queue_candidate(item):
 
 def build_usaspending_queue(items, mybidmatch_items, max_items):
     queue = []
+    queued_notice_ids = set()
 
     for item in items:
         if is_pass_not_ready(item):
@@ -776,6 +868,7 @@ def build_usaspending_queue(items, mybidmatch_items, max_items):
                 "Processed package has decision, compliance, and pricing artifacts. "
                 "Consider USAspending to validate historical award context.",
             ))
+            queued_notice_ids.add(item.get("notice_id"))
             continue
 
         if has_core_processed_artifacts(item):
@@ -784,6 +877,7 @@ def build_usaspending_queue(items, mybidmatch_items, max_items):
                 "Processed package has decision and compliance artifacts. "
                 "Review award history before deeper pursuit work.",
             ))
+            queued_notice_ids.add(item.get("notice_id"))
             continue
 
         if is_sources_candidate(item):
@@ -792,13 +886,41 @@ def build_usaspending_queue(items, mybidmatch_items, max_items):
                 "Early-stage item appears strategically relevant. "
                 "Consider incumbent and buying-pattern research before response shaping.",
             ))
+            queued_notice_ids.add(item.get("notice_id"))
 
     for item in mybidmatch_items:
         if is_mybidmatch_queue_candidate(item):
+            resolution = item.get("resolution") or {}
+            status = resolution.get("resolution_status")
+            matched_notice_id = safe_text(resolution.get("matched_notice_id"))
+            if status == "Confirmed GovCon Scout Match" and matched_notice_id:
+                if matched_notice_id in queued_notice_ids:
+                    continue
+                mapped = {
+                    "notice_id": matched_notice_id,
+                    "title": safe_text(resolution.get("matched_govcon_title")) or item.get("title", ""),
+                    "status": "Confirmed MyBidMatch/GovCon Match",
+                    "fit": 0,
+                    "prime": 0,
+                    "deadline": "",
+                    "action": "Use matched GovCon Scout record; requires validation before deeper research.",
+                    "artifacts": existing_artifacts(matched_notice_id),
+                    "intel": intel_status(matched_notice_id, existing_artifacts(matched_notice_id)),
+                    "resolution": resolution,
+                }
+                queue.append((
+                    mapped,
+                    "Confirmed MyBidMatch match to an existing GovCon Scout notice. "
+                    "Use the matched notice ID and validate scope before USAspending.",
+                ))
+                queued_notice_ids.add(matched_notice_id)
+                continue
+
+            qualifier = " requires match validation" if status == "Possible GovCon Scout Match" else ""
             queue.append((
                 item,
                 "MyBidMatch priority lead aligns with a strategic lane. "
-                "Trace the source identifier first; deeper award research requires validation.",
+                f"Trace the source identifier first; deeper award research{qualifier}.",
             ))
 
     queue = sorted(
@@ -862,11 +984,40 @@ def source_review_lines(source_paths):
     return lines
 
 
+def mybidmatch_resolution_summary(rows):
+    counts = mybidmatch_resolution_counts(rows)
+    statuses = [
+        "Confirmed GovCon Scout Match",
+        "Possible GovCon Scout Match",
+        "State/Local/Non-SAM Lead",
+        "Needs Manual Lookup",
+        "Duplicate / Already Covered",
+    ]
+    lines = []
+    for status in statuses:
+        lines.append(f"- **{status}:** {counts.get(status, 0)}")
+    if not rows:
+        lines.append("- Resolution data not available yet.")
+    return "\n".join(lines)
+
+
+def mybidmatch_next_actions():
+    return "\n".join([
+        "- **Confirmed GovCon Scout matches:** use the existing GovCon Scout workflow and matched notice ID.",
+        "- **Possible matches:** manually verify title and agency before processing.",
+        "- **State/local leads:** hold for a later state/local workflow; not ready for SAM.gov automation.",
+        "- **Manual lookup:** open the MyBidMatch source and locate the source/origin record.",
+        "- **Duplicates:** ignore unless the MyBidMatch source contains new details not already captured.",
+    ])
+
+
 def build_review_pack(
     items,
     triage_board,
     mybidmatch_triage,
+    mybidmatch_resolution_rows,
     mybidmatch_path,
+    mybidmatch_resolution_path,
     govcon_csv,
     govcon_csv_rows,
     mybidmatch_csv,
@@ -884,6 +1035,9 @@ def build_review_pack(
     pass_items = [item for item in items if is_pass_not_ready(item)]
     mybidmatch_priority = mybidmatch_triage.get("Priority Review", [])
     mybidmatch_possible = mybidmatch_triage.get("Possible Fit", [])
+    resolution_index = build_resolution_index(mybidmatch_resolution_rows)
+    mybidmatch_priority = [attach_mybidmatch_resolution(item, resolution_index) for item in mybidmatch_priority]
+    mybidmatch_possible = [attach_mybidmatch_resolution(item, resolution_index) for item in mybidmatch_possible]
     usaspending_queue = build_usaspending_queue(items, mybidmatch_priority, max_usaspending)
     manual_retry_combined = sorted(
         {item["notice_id"]: item for item in (manual + retry)}.values(),
@@ -893,6 +1047,7 @@ def build_review_pack(
     reviewed_sources = [
         ("GovCon triage board", triage_board, None),
         ("MyBidMatch triage", mybidmatch_path, None),
+        ("MyBidMatch SAM resolution CSV", mybidmatch_resolution_path, len(mybidmatch_resolution_rows)),
         ("GovCon opportunities CSV", govcon_csv, len(govcon_csv_rows)),
         ("MyBidMatch opportunities CSV", mybidmatch_csv, len(mybidmatch_csv_rows)),
         ("Opportunity reviews folder", "reports/opportunity_reviews", None),
@@ -920,6 +1075,7 @@ def build_review_pack(
         f"- **Pass / not ready:** {len(pass_items)}",
         f"- **MyBidMatch Priority Review leads:** {len(mybidmatch_priority)}",
         f"- **MyBidMatch Possible Fit leads:** {len(mybidmatch_possible)}",
+        f"- **MyBidMatch SAM-resolved rows:** {len(mybidmatch_resolution_rows)}",
         f"- **Recommended USAspending queue size:** {len(usaspending_queue)}",
         "",
         "Use this pack to decide where deeper award intelligence is worth the time. "
@@ -941,11 +1097,15 @@ def build_review_pack(
         "",
         item_table(sources) if sources else "None.",
         "",
+        "## MyBidMatch SAM Resolution Summary",
+        "",
+        mybidmatch_resolution_summary(mybidmatch_resolution_rows),
+        "",
         "## MyBidMatch Priority Review Leads",
         "",
         "Priority daily-list leads worth source/origin review before deeper automation or market research.",
         "",
-        mybidmatch_table(mybidmatch_priority[:max_mybidmatch_priority]),
+        mybidmatch_table(mybidmatch_priority[:max_mybidmatch_priority], include_resolution=True),
         "",
         "## MyBidMatch Possible Fit Leads",
         "",
@@ -976,6 +1136,10 @@ def build_review_pack(
         "5. Retry manual-review items only when live/session or downloader evidence suggests the opportunity can be recovered.",
         "6. Keep pass/not-ready and weak MyBidMatch items out of deeper research until requirements become clearer.",
         "",
+        "### MyBidMatch Next Actions",
+        "",
+        mybidmatch_next_actions(),
+        "",
         "## Source Files Reviewed",
         "",
         *source_review_lines(reviewed_sources),
@@ -990,6 +1154,7 @@ def parse_args():
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--triage-board", default=DEFAULT_TRIAGE_BOARD)
     parser.add_argument("--mybidmatch-triage", default=DEFAULT_MYBIDMATCH_TRIAGE)
+    parser.add_argument("--mybidmatch-resolution", default=DEFAULT_MYBIDMATCH_RESOLVED)
     parser.add_argument("--govcon-csv", default=DEFAULT_GOVCON_CSV)
     parser.add_argument("--mybidmatch-csv", default=DEFAULT_MYBIDMATCH_CSV)
     parser.add_argument("--max-usaspending", type=int, default=10)
@@ -1002,6 +1167,7 @@ def main():
     args = parse_args()
     _sections, board_items = parse_triage_board(args.triage_board)
     mybidmatch_triage = parse_mybidmatch_triage(args.mybidmatch_triage)
+    mybidmatch_resolution_rows = read_csv_rows(args.mybidmatch_resolution)
     govcon_csv_rows = read_csv_rows(args.govcon_csv)
     mybidmatch_csv_rows = read_csv_rows(args.mybidmatch_csv)
     discovered = discover_artifact_items(board_items)
@@ -1016,7 +1182,9 @@ def main():
             items,
             args.triage_board,
             mybidmatch_triage,
+            mybidmatch_resolution_rows,
             args.mybidmatch_triage,
+            args.mybidmatch_resolution,
             args.govcon_csv,
             govcon_csv_rows,
             args.mybidmatch_csv,
