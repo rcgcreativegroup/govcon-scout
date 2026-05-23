@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GovCon Scout Operator Dashboard</title>
+  <style>
+    :root {
+      --page: #0e0e10;
+      --card: #141416;
+      --top: #141416;
+      --filter: #111114;
+      --queue: #0c0c0e;
+      --input: #1a1a1e;
+      --border: #2a2a2e;
+      --text: #e0e0e0;
+      --secondary: #888888;
+      --muted: #555555;
+      --green: #00ff88;
+      --go-bg: #1a2e1a;
+      --amber: #f0a500;
+      --amber-bg: #2a1f0a;
+      --red: #ff4444;
+      --cyan: #4499ff;
+      --purple: #9966ff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font-family: "Courier New", monospace;
+      font-size: 11px;
+    }
+    button, input, select, textarea {
+      font-family: "Courier New", monospace;
+      border-radius: 0;
+    }
+    button {
+      background: var(--input);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 7px 9px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    button:hover { border-color: var(--green); color: var(--green); }
+    button.go { background: var(--go-bg); color: var(--green); border-color: var(--green); }
+    button.warn { background: var(--amber-bg); color: var(--amber); border-color: var(--amber); }
+    button.risk { background: #2a1010; color: var(--red); border-color: var(--red); }
+    input, select, textarea {
+      background: var(--input);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 7px;
+      width: 100%;
+      font-size: 11px;
+    }
+    textarea { min-height: 72px; resize: vertical; }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .topbar {
+      height: 54px;
+      display: grid;
+      grid-template-columns: 290px 1fr 360px;
+      gap: 14px;
+      align-items: center;
+      padding: 9px 12px;
+      background: var(--top);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { color: var(--green); font-size: 14px; font-weight: bold; }
+    .counts { color: var(--secondary); display: flex; gap: 14px; flex-wrap: wrap; }
+    .counts b { color: var(--text); }
+    .search-wrap { display: grid; grid-template-columns: 1fr 70px; gap: 6px; }
+    .filterbar {
+      display: flex;
+      gap: 6px;
+      padding: 8px 12px;
+      background: var(--filter);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .filterbar button.active { color: var(--green); border-color: var(--green); background: var(--go-bg); }
+    .workflow {
+      color: var(--secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 7px 12px;
+      background: #101012;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .main {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: calc(100vh - 92px);
+    }
+    .queue {
+      background: var(--queue);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      max-height: calc(100vh - 92px);
+    }
+    .queue-empty { color: var(--muted); padding: 12px; }
+    .queue-item {
+      padding: 9px 10px;
+      border-bottom: 1px solid #1b1b1f;
+      border-left: 3px solid transparent;
+      cursor: pointer;
+    }
+    .queue-item.active { border-left-color: var(--green); background: #111b14; }
+    .queue-title {
+      font-size: 11px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 5px;
+    }
+    .queue-meta { color: var(--secondary); display: flex; gap: 5px; flex-wrap: wrap; }
+    .tag { border: 1px solid var(--border); padding: 1px 4px; color: var(--secondary); }
+    .tag.high { color: var(--green); border-color: var(--green); }
+    .tag.med { color: var(--amber); border-color: var(--amber); }
+    .tag.low { color: var(--red); border-color: var(--red); }
+    .card {
+      background: var(--card);
+      padding: 14px;
+      overflow-y: auto;
+      max-height: calc(100vh - 92px);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .title { font-size: 14px; color: var(--text); line-height: 1.4; }
+    .subtle { color: var(--secondary); }
+    .muted { color: var(--muted); }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .meta {
+      border: 1px solid var(--border);
+      background: #111114;
+      padding: 7px;
+      min-height: 48px;
+    }
+    .label {
+      display: block;
+      color: #8fbcd4;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    .value {
+      color: #e8e8e8;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .section {
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+    .section h3 {
+      margin: 0 0 8px;
+      color: #b7d7e8;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .ribbon { display: flex; gap: 5px; flex-wrap: wrap; margin: 10px 0; }
+    .stage {
+      padding: 5px 7px;
+      border: 1px solid var(--border);
+      background: #111114;
+      color: var(--muted);
+    }
+    .stage.current { color: var(--green); border-color: var(--green); background: var(--go-bg); }
+    .stage.done { color: var(--secondary); border-color: #33513c; }
+    .countdown.ok { color: var(--secondary); }
+    .countdown.warn { color: var(--amber); }
+    .countdown.danger { color: var(--red); }
+    .disq {
+      border: 1px solid var(--border);
+      padding: 8px;
+      margin-top: 10px;
+    }
+    .disq.HARD { border-color: var(--red); color: var(--red); background: #211010; }
+    .disq.SOFT { border-color: var(--amber); color: var(--amber); background: var(--amber-bg); }
+    .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 7px; }
+    .links { display: flex; flex-wrap: wrap; gap: 8px; }
+    .checklist {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 6px;
+    }
+    .check {
+      border: 1px solid var(--border);
+      padding: 6px;
+      color: var(--secondary);
+    }
+    .check.detected { color: var(--green); border-color: #25583d; }
+    .upload-zone {
+      border: 1px dashed var(--amber);
+      background: var(--amber-bg);
+      padding: 10px;
+    }
+    .note-row {
+      border-top: 1px solid var(--border);
+      padding: 7px 0;
+    }
+    .note-meta { color: var(--secondary); font-size: 10px; margin-bottom: 3px; }
+    .nav-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+    .status-line {
+      color: var(--secondary);
+      min-height: 18px;
+      margin-top: 8px;
+    }
+    details summary { cursor: pointer; color: var(--cyan); }
+    pre.wrap {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: #101012;
+      border: 1px solid var(--border);
+      padding: 8px;
+      color: var(--secondary);
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    @media (max-width: 900px) {
+      .topbar { grid-template-columns: 1fr; height: auto; }
+      .main { grid-template-columns: 1fr; }
+      .queue { max-height: 240px; border-right: 0; border-bottom: 1px solid var(--border); }
+      .card { max-height: none; }
+      .meta-grid, .columns, .checklist { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      <div class="brand">GOVCON SCOUT // BID DESK</div>
+      <div class="subtle" id="position">loading queue</div>
+    </div>
+    <div class="counts" id="counts"></div>
+    <div class="search-wrap">
+      <input id="search" placeholder="search notice, title, agency, notes...">
+      <button id="resetSearch">RESET</button>
+    </div>
+  </div>
+  <div class="filterbar" id="filters"></div>
+  <div class="workflow">Review the job &rarr; Decide if doable/sourceable &rarr; Check requirements &rarr; Upload docs if needed &rarr; Run AI review &rarr; Get quote/intel &rarr; Draft/send response &rarr; Call/contact &rarr; Move to next</div>
+  <div class="main">
+    <aside class="queue" id="queue"></aside>
+    <main class="card" id="card"></main>
+  </div>
+
+  <script>
+    const STAGES = ["All", "Triage", "Intake", "Manual Review", "AI Review", "Development", "Ready", "Execution", "Archive", "Done"];
+    const FULL_STAGE = { Ready: "Ready to Submit" };
+    const UEI = "QJZTCE6MKBG5";
+    const BUTTONS = {
+      "Triage": ["YES — Intake Docs", "Manual Review", "PASS"],
+      "Intake": ["Prepare SAM Docs", "Manual Upload", "Bypass to AI Review", "PASS"],
+      "Manual Review": ["Advance to AI Review", "Advance to Development", "PASS"],
+      "AI Review": ["Run AI Review", "Flag Disqualifier", "Advance to Development"],
+      "Development": ["Log Vendor Quote", "Draft Response", "Mark Ready to Submit", "PASS"],
+      "Ready to Submit": ["Mark Submitted", "Send Back to Development"],
+      "Execution": ["Log Follow-Up", "Mark Done", "Park"],
+      "Archive": ["Reactivate"],
+      "Done": ["Reactivate"]
+    };
+
+    let opportunities = [];
+    let config = {};
+    let activeIndex = 0;
+    let activeFilter = "All";
+    let searchTerm = "";
+    let statusMessage = "";
+
+    const h = value => String(value ?? "").replace(/[&<>"']/g, ch => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[ch]));
+    const val = value => h(value || "not available");
+    const currentStage = row => row.macro_stage || "Triage";
+    const noticeId = row => row.notice_id || "MyBidMatch";
+    const stageFilterValue = f => FULL_STAGE[f] || f;
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Request failed");
+      return data;
+    }
+
+    async function load() {
+      config = await api("/api/config");
+      const data = await api("/api/opportunities");
+      opportunities = data.opportunities || [];
+      renderFilters();
+      render();
+    }
+
+    function searchableText(row) {
+      const notes = (row.notes || []).map(n => n.note_text).join(" ");
+      return [
+        row.notice_id, row.title, row.agency, row.source, row.lane, row.naics,
+        row.macro_stage, row.recommended_next_action, row.description, notes
+      ].join(" ").toLowerCase();
+    }
+
+    function filteredItems() {
+      const stage = stageFilterValue(activeFilter);
+      return opportunities.filter(row => {
+        const stageOk = activeFilter === "All" || currentStage(row) === stage;
+        const searchOk = !searchTerm || searchableText(row).includes(searchTerm.toLowerCase());
+        return stageOk && searchOk;
+      });
+    }
+
+    function renderFilters() {
+      document.getElementById("filters").innerHTML = STAGES.map(stage =>
+        `<button class="${stage === activeFilter ? "active" : ""}" data-stage="${h(stage)}">${h(stage)}</button>`
+      ).join("");
+      document.querySelectorAll("#filters button").forEach(btn => {
+        btn.onclick = () => {
+          activeFilter = btn.dataset.stage;
+          activeIndex = 0;
+          render();
+        };
+      });
+    }
+
+    function countBy(predicate) {
+      return opportunities.filter(predicate).length;
+    }
+
+    function renderCounts(items) {
+      const counts = [
+        ["total", opportunities.length],
+        ["triage", countBy(r => currentStage(r) === "Triage")],
+        ["intake", countBy(r => currentStage(r) === "Intake" || r.operator_status === "documents_needed")],
+        ["quote/dev", countBy(r => currentStage(r) === "Development")],
+        ["ready", countBy(r => currentStage(r) === "Ready to Submit")],
+        ["submitted", countBy(r => currentStage(r) === "Execution")],
+        ["park/done", countBy(r => ["Archive", "Done"].includes(currentStage(r)))]
+      ];
+      document.getElementById("counts").innerHTML = counts.map(([k, v]) => `<span>${h(k)}: <b>${v}</b></span>`).join("");
+      document.getElementById("position").textContent = items.length ? `${Math.min(activeIndex + 1, items.length)} / ${items.length}` : "0 / 0";
+    }
+
+    function renderQueue(items) {
+      const queue = document.getElementById("queue");
+      if (!items.length) {
+        queue.innerHTML = `<div class="queue-empty">No matching opportunities found.</div>`;
+        return;
+      }
+      queue.innerHTML = items.map((row, index) => {
+        const band = String(row.fit_band || "").toLowerCase();
+        return `
+          <div class="queue-item ${index === activeIndex ? "active" : ""}" data-index="${index}">
+            <div class="queue-title">${h(row.title || row.notice_id || "untitled")}</div>
+            <div class="queue-meta">
+              <span class="tag ${band}">${h(row.fit_band || "NA")}</span>
+              <span class="tag">${h(row.lane || "lane n/a")}</span>
+              <span class="tag">${h(currentStage(row))}</span>
+            </div>
+          </div>`;
+      }).join("");
+      document.querySelectorAll(".queue-item").forEach(item => {
+        item.onclick = () => {
+          activeIndex = Number(item.dataset.index);
+          render();
+        };
+      });
+    }
+
+    function countdown(row) {
+      if (!row.due_date) return `<span class="countdown ok">deadline not available</span>`;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const due = new Date(row.due_date + "T00:00:00");
+      const days = Math.ceil((due - today) / 86400000);
+      const close = row.deadline_time ? ` | Closes ${h(row.deadline_time)} ${h(row.deadline_tz || "")}` : "";
+      if (days < 0) return `<span class="countdown danger">Past due${close}</span>`;
+      if (days <= 2) return `<span class="countdown danger">!! ${days} days remaining${close}</span>`;
+      if (days <= 6) return `<span class="countdown warn">${days} days remaining${close}</span>`;
+      return `<span class="countdown ok">${days} days remaining${close}</span>`;
+    }
+
+    function copyButton(label, value) {
+      if (!value) return "";
+      return `<button data-copy="${h(value)}">${h(label)}</button>`;
+    }
+
+    function renderRibbon(stage) {
+      const stages = config.stage_enums?.stages || [];
+      const current = stages.indexOf(stage);
+      return `<div class="ribbon">${stages.map((s, i) =>
+        `<span class="stage ${s === stage ? "current" : i < current ? "done" : ""}">${h(s)}</span>`
+      ).join("")}</div>`;
+    }
+
+    function splitList(value) {
+      return String(value || "").split("|").map(v => v.trim()).filter(Boolean);
+    }
+
+    function renderList(value) {
+      const items = splitList(value);
+      return items.length ? `<ul>${items.map(item => `<li>${h(item)}</li>`).join("")}</ul>` : `<span class="muted">not available</span>`;
+    }
+
+    function renderDisqualifier(row) {
+      const flag = row.disqualifier_flag || "NONE";
+      if (flag === "NONE") return "";
+      return `<div class="disq ${h(flag)}"><b>${h(flag)} DISQUALIFIER SIGNAL</b><br>${val(row.disqualifiers)}</div>`;
+    }
+
+    function renderChecklist(row) {
+      return `<div class="checklist">${(row.document_checklist || []).map(item =>
+        `<div class="check ${item.status === "detected" ? "detected" : ""}">
+          <span class="label">${h(item.key)}</span>${h(item.status)}
+        </div>`
+      ).join("")}</div>`;
+    }
+
+    function fileUrl(path) {
+      return `/file?path=${encodeURIComponent(path)}`;
+    }
+
+    function renderLinks(row) {
+      const links = row.related_links || [];
+      if (!links.length) return `<span class="muted">not available</span>`;
+      return `<div class="links">${links.map(link =>
+        `<a href="${fileUrl(link.path)}" target="_blank" rel="noopener">${h(link.label)}</a>`
+      ).join("")}</div>`;
+    }
+
+    function renderUpload(row) {
+      const show = ["Intake", "Manual Review"].includes(currentStage(row)) || row.operator_status === "documents_needed";
+      if (!show) return "";
+      return `
+        <div class="section upload-zone">
+          <h3>Manual Upload</h3>
+          <input type="file" id="uploadFile">
+          <button class="warn" id="uploadBtn">Upload Document</button>
+        </div>`;
+    }
+
+    function renderNotes(row) {
+      const notes = row.notes || [];
+      return `
+        <div class="section">
+          <h3>Notes / Activity</h3>
+          <div class="columns">
+            <div>
+              <select id="noteType">${(config.stage_enums?.note_types || []).map(type => `<option value="${h(type)}">${h(type)}</option>`).join("")}</select>
+              <textarea id="noteText" placeholder="Add operator note..."></textarea>
+              <button id="saveNote" class="go">Save Note</button>
+            </div>
+            <div>
+              ${notes.length ? notes.map(note => `
+                <div class="note-row">
+                  <div class="note-meta">${h(note.timestamp)} | ${h(note.note_type)} | ${h(note.stage)}</div>
+                  <div>${h(note.note_text)}</div>
+                </div>`).join("") : `<span class="muted">No notes yet.</span>`}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function actionButtons(row) {
+      const stage = currentStage(row);
+      return (BUTTONS[stage] || []).map(label => {
+        const klass = label.includes("PASS") || label.includes("Disqualifier") ? "risk" :
+          label.includes("Manual") || label.includes("Park") || label.includes("Back") ? "warn" : "go";
+        return `<button class="${klass}" data-action-label="${h(label)}">${h(label)}</button>`;
+      }).join("");
+    }
+
+    function renderCard(row, items) {
+      if (!row) {
+        document.getElementById("card").innerHTML = `<div class="muted">No matching opportunities found.</div>`;
+        return;
+      }
+      document.getElementById("card").innerHTML = `
+        <div class="card-header">
+          <div>
+            <div class="title">${h(row.title || "untitled opportunity")}</div>
+            <div class="subtle">${h(row.source || "source n/a")} | ${h(noticeId(row))}</div>
+          </div>
+          <div>
+            <span class="tag ${String(row.fit_band || "").toLowerCase()}">${h(row.fit_band || "NA")}</span>
+            <span class="tag">${h(row.priority || "priority n/a")}</span>
+          </div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta"><span class="label">Agency</span><span class="value">${val(row.agency)}</span></div>
+          <div class="meta"><span class="label">Notice / Lead ID</span><span class="value">${val(noticeId(row))}</span>${copyButton("copy", row.notice_id)}</div>
+          <div class="meta"><span class="label">Due</span><span class="value">${countdown(row)}</span></div>
+          <div class="meta"><span class="label">NAICS / Lane</span><span class="value">${val(row.naics)} / ${val(row.lane)}</span>${copyButton("copy NAICS", row.naics)}</div>
+          <div class="meta"><span class="label">UEI</span><span class="value">${UEI}</span>${copyButton("copy UEI", UEI)}</div>
+          <div class="meta"><span class="label">Buyer Email</span><span class="value">${val(row.buyer_email)}</span>${copyButton("copy email", row.buyer_email)}</div>
+          <div class="meta"><span class="label">Operator Status</span><span class="value">${val(row.operator_status)}</span></div>
+          <div class="meta"><span class="label">Recommended Next Action</span><span class="value">${val(row.recommended_next_action)}</span></div>
+        </div>
+
+        ${renderRibbon(currentStage(row))}
+        ${renderDisqualifier(row)}
+
+        <div class="section">
+          <h3>AI / Plain-English Summary</h3>
+          <div>${val(row.ai_summary || row.recommended_next_action)}</div>
+        </div>
+
+        <div class="section columns">
+          <div>
+            <h3>Requirements</h3>
+            ${renderList(row.requirements)}
+          </div>
+          <div>
+            <h3>Disqualifiers</h3>
+            ${renderList(row.disqualifiers)}
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>Full Description</h3>
+          <details><summary>expand description</summary><pre class="wrap">${h(row.description || "not available")}</pre></details>
+        </div>
+
+        <div class="section">
+          <h3>Buyer / Follow-Up</h3>
+          <div class="meta-grid">
+            <div class="meta"><span class="label">Buyer</span>${val(row.buyer_name)}</div>
+            <div class="meta"><span class="label">Phone</span>${val(row.buyer_phone)}</div>
+            <div class="meta"><span class="label">Last Call</span>${val(row.last_call_date)}</div>
+            <div class="meta"><span class="label">Last Call Notes</span>${val(row.last_call_notes)}</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>Stage Actions</h3>
+          <div class="actions">${actionButtons(row)}</div>
+          <div class="status-line" id="statusLine">${h(statusMessage)}</div>
+        </div>
+
+        ${renderUpload(row)}
+
+        <div class="section">
+          <h3>Document Checklist</h3>
+          ${renderChecklist(row)}
+        </div>
+
+        <div class="section">
+          <h3>Related Outputs</h3>
+          ${renderLinks(row)}
+        </div>
+
+        ${renderNotes(row)}
+
+        <div class="nav-row">
+          <button id="prevBtn">Previous</button>
+          <span class="subtle">${activeIndex + 1} / ${items.length}</span>
+          <button id="nextBtn">Next</button>
+        </div>
+      `;
+      wireCardEvents(row, items);
+    }
+
+    function render() {
+      const items = filteredItems();
+      if (activeIndex >= items.length) activeIndex = Math.max(0, items.length - 1);
+      renderCounts(items);
+      renderQueue(items);
+      renderCard(items[activeIndex], items);
+    }
+
+    async function updateStage(row, stage, noteType, noteText, operatorStatus = "", lastAction = "") {
+      const payload = {
+        notice_id: row.notice_id,
+        macro_stage: stage,
+        note_type: noteType || "general_note",
+        note_text: noteText || "",
+        operator_status: operatorStatus,
+        last_operator_action: lastAction || `Moved to ${stage}`
+      };
+      await api("/api/stage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      statusMessage = `Updated: ${stage}`;
+      await load();
+    }
+
+    async function saveNote(row, type, text) {
+      await api("/api/note", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notice_id: row.notice_id, note_type: type, note_text: text, stage: currentStage(row) })
+      });
+      statusMessage = "Note saved.";
+      await load();
+    }
+
+    async function runAction(row, action) {
+      statusMessage = `Running ${action}...`;
+      render();
+      const result = await api(`/api/action/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notice_id: row.notice_id })
+      });
+      statusMessage = result.message || result.status || "Action complete.";
+      await load();
+    }
+
+    async function handleButton(row, label) {
+      if (!row.notice_id) {
+        statusMessage = "Missing notice_id; cannot update this card.";
+        render();
+        return;
+      }
+      if (label === "YES — Intake Docs") {
+        const note = prompt("Decision note (optional):") || "";
+        return updateStage(row, "Intake", "general_note", note, "", "Moved to Intake.");
+      }
+      if (label === "Manual Review") {
+        const note = prompt("What needs checking?");
+        if (note === null) return;
+        return updateStage(row, "Manual Review", "risk_note", note, "", "Moved to Manual Review.");
+      }
+      if (label === "PASS") {
+        const note = prompt("Why are you passing?");
+        if (!note) return;
+        return updateStage(row, "Archive", "risk_note", note, "pass", "Passed/archived by operator.");
+      }
+      if (label === "Prepare SAM Docs") return runAction(row, "prepare_docs");
+      if (label === "Manual Upload") {
+        const input = document.getElementById("uploadFile");
+        if (input) input.focus();
+        statusMessage = "Use the upload zone below.";
+        return render();
+      }
+      if (label === "Bypass to AI Review") {
+        return updateStage(row, "AI Review", "general_note", "Operator bypassed intake to AI Review.", "", "Bypassed to AI Review.");
+      }
+      if (label === "Advance to AI Review") return updateStage(row, "AI Review", "general_note", "", "", "Advanced to AI Review.");
+      if (label === "Advance to Development") return updateStage(row, "Development", "general_note", "", "", "Advanced to Development.");
+      if (label === "Run AI Review") return runAction(row, "run_ai_review");
+      if (label === "Flag Disqualifier") {
+        const note = prompt("What is the disqualifier?");
+        if (!note) return;
+        return updateStage(row, "Archive", "risk_note", note, "disqualified", "Flagged hard disqualifier.");
+      }
+      if (label === "Log Vendor Quote") {
+        const note = prompt("What quote is needed and from whom?");
+        if (!note) return;
+        return saveNote(row, "vendor_quote_note", note);
+      }
+      if (label === "Draft Response") return runAction(row, "draft_response");
+      if (label === "Mark Ready to Submit") return updateStage(row, "Ready to Submit", "general_note", "", "", "Marked ready to submit.");
+      if (label === "Mark Submitted") {
+        const note = prompt("What was submitted and to whom?");
+        if (!note) return;
+        return updateStage(row, "Execution", "submission_note", note, "submitted", "Marked submitted.");
+      }
+      if (label === "Send Back to Development") return updateStage(row, "Development", "general_note", "", "", "Sent back to Development.");
+      if (label === "Log Follow-Up") {
+        const note = prompt("Follow up when and why?");
+        if (!note) return;
+        return saveNote(row, "follow_up_note", note);
+      }
+      if (label === "Mark Done") return updateStage(row, "Done", "general_note", "", "done", "Marked done.");
+      if (label === "Park") {
+        const note = prompt("Park note (optional):") || "";
+        return updateStage(row, "Archive", "general_note", note, "parked", "Parked by operator.");
+      }
+      if (label === "Reactivate") {
+        const choice = prompt("Reactivate to which stage? Type Triage or Manual Review.", "Triage") || "Triage";
+        const stage = choice === "Manual Review" ? "Manual Review" : "Triage";
+        return updateStage(row, stage, "general_note", `Reactivated to ${stage}.`, "", "Reactivated.");
+      }
+    }
+
+    function wireCardEvents(row, items) {
+      document.querySelectorAll("[data-copy]").forEach(btn => {
+        btn.onclick = async () => {
+          await navigator.clipboard.writeText(btn.dataset.copy);
+          btn.textContent = "copied";
+          setTimeout(() => { btn.textContent = "copy"; }, 900);
+        };
+      });
+      document.querySelectorAll("[data-action-label]").forEach(btn => {
+        btn.onclick = () => handleButton(row, btn.dataset.actionLabel);
+      });
+      const prev = document.getElementById("prevBtn");
+      const next = document.getElementById("nextBtn");
+      if (prev) prev.onclick = () => { activeIndex = Math.max(0, activeIndex - 1); render(); };
+      if (next) next.onclick = () => { activeIndex = Math.min(items.length - 1, activeIndex + 1); render(); };
+      const save = document.getElementById("saveNote");
+      if (save) save.onclick = () => {
+        const type = document.getElementById("noteType").value;
+        const text = document.getElementById("noteText").value.trim();
+        if (!text) return;
+        saveNote(row, type, text);
+      };
+      const uploadBtn = document.getElementById("uploadBtn");
+      if (uploadBtn) uploadBtn.onclick = async () => {
+        const file = document.getElementById("uploadFile").files[0];
+        if (!file) {
+          statusMessage = "Choose a file first.";
+          render();
+          return;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        const result = await fetch(`/api/upload/${encodeURIComponent(row.notice_id)}`, { method: "POST", body: form });
+        const data = await result.json();
+        statusMessage = data.error || `Uploaded ${file.name}; moved to AI Review.`;
+        await load();
+      };
+    }
+
+    document.getElementById("search").addEventListener("input", event => {
+      searchTerm = event.target.value;
+      activeIndex = 0;
+      render();
+    });
+    document.getElementById("resetSearch").onclick = () => {
+      searchTerm = "";
+      document.getElementById("search").value = "";
+      activeIndex = 0;
+      render();
+    };
+
+    document.addEventListener("keydown", event => {
+      const target = event.target;
+      const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        document.getElementById("search").focus();
+        return;
+      }
+      if (typing) return;
+      const items = filteredItems();
+      const row = items[activeIndex];
+      if (!row) return;
+      if (event.key.toLowerCase() === "j") {
+        activeIndex = Math.min(items.length - 1, activeIndex + 1);
+        render();
+      } else if (event.key.toLowerCase() === "k") {
+        activeIndex = Math.max(0, activeIndex - 1);
+        render();
+      } else if (event.key.toLowerCase() === "y" && currentStage(row) === "Triage") {
+        handleButton(row, "YES — Intake Docs");
+      } else if (event.key.toLowerCase() === "n") {
+        handleButton(row, "PASS");
+      } else if (event.key.toLowerCase() === "m") {
+        handleButton(row, "Manual Review");
+      } else if (event.key === "Enter") {
+        const note = document.getElementById("noteText");
+        if (note) note.focus();
+      }
+    });
+
+    load().catch(error => {
+      document.getElementById("card").innerHTML = `<div class="disq HARD">Dashboard failed: ${h(error.message)}</div>`;
+    });
+  </script>
+</body>
+</html>
