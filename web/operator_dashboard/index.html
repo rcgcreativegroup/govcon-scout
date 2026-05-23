@@ -77,12 +77,23 @@
     .filterbar {
       display: flex;
       gap: 6px;
+      align-items: center;
       padding: 8px 12px;
       background: var(--filter);
       border-bottom: 1px solid var(--border);
       overflow-x: auto;
     }
     .filterbar button.active { color: var(--green); border-color: var(--green); background: var(--go-bg); }
+    .sort-wrap {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 230px;
+      color: var(--secondary);
+    }
+    .sort-wrap select { width: 145px; }
+    .tab-count { color: var(--secondary); }
     .workflow {
       color: var(--secondary);
       border-bottom: 1px solid var(--border);
@@ -372,8 +383,11 @@
   </div>
 
   <script>
-    const STAGES = ["All", "Triage", "Intake", "Manual Review", "AI Review", "Development", "Ready", "Execution", "Archive", "Done"];
+    const FILTERS = ["Active Review", "Needs Docs", "AI Ready", "AI Reviewed", "Sources Sought", "Follow-Up", "Flagged", "All", "Archive"];
     const FULL_STAGE = { Ready: "Ready to Submit" };
+    const ACTIVE_STAGES = ["Triage", "Intake", "Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"];
+    const STAGE_ORDER = ["Triage", "Intake", "Manual Review", "AI Review", "Development", "Ready to Submit", "Execution", "Archive", "Done"];
+    const ARCHIVE_TERMS = ["pass", "ignore", "poor fit", "duplicate", "already covered", "archive", "parked"];
     const UEI = "QJZTCE6MKBG5";
     const BUTTONS = {
       "Triage": ["YES — Intake Docs", "Manual Review", "PASS"],
@@ -390,7 +404,8 @@
     let opportunities = [];
     let config = {};
     let activeIndex = 0;
-    let activeFilter = "All";
+    let activeFilter = "Active Review";
+    let sortMode = "Priority";
     let searchTerm = "";
     let statusMessage = "";
 
@@ -401,6 +416,27 @@
     const currentStage = row => row.macro_stage || "Triage";
     const noticeId = row => row.notice_id || "MyBidMatch";
     const stageFilterValue = f => FULL_STAGE[f] || f;
+    const textOf = value => String(value || "").toLowerCase();
+    const hasMeaningful = value => {
+      const text = String(value || "").trim().toLowerCase();
+      return !!text && !["not available", "none", "null", "n/a", "na"].includes(text);
+    };
+    const isFlagged = row => ["true", "yes", "1", "flagged"].includes(textOf(row.flagged));
+    const containsAny = (value, terms) => terms.some(term => textOf(value).includes(term));
+    const isArchivedStatus = row => {
+      if (["Archive", "Done"].includes(currentStage(row))) return true;
+      return containsAny(row.operator_status, ARCHIVE_TERMS)
+        || containsAny(row.triage_status, ARCHIVE_TERMS)
+        || containsAny(row.current_stage, ARCHIVE_TERMS);
+    };
+    const hasNoticeId = row => hasMeaningful(row.notice_id);
+    const activeReview = row => {
+      if (isFlagged(row)) return true;
+      if (!hasNoticeId(row)) return false;
+      if (isArchivedStatus(row)) return false;
+      return ACTIVE_STAGES.includes(currentStage(row));
+    };
+    const notArchivedUnlessFlagged = row => isFlagged(row) || (!isArchivedStatus(row) && hasNoticeId(row));
 
     async function api(path, options = {}) {
       const response = await fetch(path, options);
@@ -423,47 +459,165 @@
       return [
         row.notice_id, row.title, row.agency, row.source, row.lane, row.naics,
         row.set_aside, readiness.value, readiness.tag, readiness.helper,
-        row.macro_stage, row.recommended_next_action, row.description, notes
+        row.macro_stage, row.current_stage, row.operator_status, row.triage_status,
+        row.recommended_next_action, row.description, notes
       ].join(" ").toLowerCase();
     }
 
+    function filterPredicate(name) {
+      return row => {
+        const ready = textOf(readiness(row).value);
+        const sourceAvailable = !!sourceUrl(row);
+        if (name === "All") return true;
+        if (name === "Active Review") return activeReview(row);
+        if (name === "Flagged") return isFlagged(row);
+        if (name === "Archive") return isArchivedStatus(row);
+        if (name === "Needs Docs") {
+          if (!notArchivedUnlessFlagged(row)) return false;
+          return currentStage(row) === "Intake"
+            || containsAny(row.operator_status, ["documents needed"])
+            || containsAny(row.current_stage, ["documents needed"])
+            || ready.includes("documents needed")
+            || (ready.includes("metadata only") && sourceAvailable);
+        }
+        if (name === "AI Ready") {
+          if (!notArchivedUnlessFlagged(row)) return false;
+          return ready.includes("ai review ready") || ready.includes("documents ready");
+        }
+        if (name === "AI Reviewed") {
+          if (!notArchivedUnlessFlagged(row)) return false;
+          return ready.includes("ai reviewed") || hasMeaningful(row.ai_summary) || hasMeaningful(row.requirements);
+        }
+        if (name === "Sources Sought") {
+          if (!notArchivedUnlessFlagged(row)) return false;
+          return containsAny(row.notice_type, ["sources sought", "rfi", "sources_sought"])
+            || containsAny(row.solicitation_type, ["sources sought", "rfi", "sources_sought"])
+            || hasMeaningful(row.sources_sought_status)
+            || ready.includes("response plan ready");
+        }
+        if (name === "Follow-Up") {
+          return currentStage(row) === "Execution"
+            || containsAny(row.macro_stage, ["follow-up", "follow up"])
+            || containsAny(row.operator_status, ["follow-up", "follow up"])
+            || containsAny(row.current_stage, ["follow-up", "follow up"]);
+        }
+        return false;
+      };
+    }
+
     function filteredItems() {
-      const stage = stageFilterValue(activeFilter);
-      return opportunities.filter(row => {
-        const stageOk = activeFilter === "All" || currentStage(row) === stage;
+      const predicate = filterPredicate(activeFilter);
+      const items = opportunities.filter(row => {
+        const filterOk = predicate(row);
         const searchOk = !searchTerm || searchableText(row).includes(searchTerm.toLowerCase());
-        return stageOk && searchOk;
+        return filterOk && searchOk;
       });
+      return sortItems(items);
     }
 
     function renderFilters() {
-      document.getElementById("filters").innerHTML = STAGES.map(stage =>
-        `<button class="${stage === activeFilter ? "active" : ""}" data-stage="${h(stage)}">${h(stage)}</button>`
-      ).join("");
+      const counts = filterCounts();
+      document.getElementById("filters").innerHTML = `
+        ${FILTERS.map(stage =>
+          `<button class="${stage === activeFilter ? "active" : ""}" data-stage="${h(stage)}">${h(stage)} <span class="tab-count">(${counts[stage] || 0})</span></button>`
+        ).join("")}
+        <div class="sort-wrap">
+          <span class="label">SORT</span>
+          <select id="sortMode">
+            ${["Priority", "Due Date", "Recently Updated", "Stage"].map(option => `<option value="${h(option)}" ${option === sortMode ? "selected" : ""}>${h(option)}</option>`).join("")}
+          </select>
+        </div>`;
       document.querySelectorAll("#filters button").forEach(btn => {
         btn.onclick = () => {
           activeFilter = btn.dataset.stage;
           activeIndex = 0;
+          renderFilters();
           render();
         };
       });
+      const sort = document.getElementById("sortMode");
+      if (sort) sort.onchange = event => {
+        sortMode = event.target.value;
+        activeIndex = 0;
+        render();
+      };
     }
 
     function countBy(predicate) {
       return opportunities.filter(predicate).length;
     }
 
+    function filterCounts() {
+      return Object.fromEntries(FILTERS.map(name => [name, countBy(filterPredicate(name))]));
+    }
+
+    function parseDate(value) {
+      if (!value) return null;
+      const parsed = new Date(String(value).slice(0, 10) + "T00:00:00");
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    function dueThisWeek(row) {
+      if (!activeReview(row)) return false;
+      const due = parseDate(row.due_date);
+      if (!due) return false;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const days = Math.ceil((due - today) / 86400000);
+      return days >= 0 && days <= 7;
+    }
+
+    function fitRank(row) {
+      const band = textOf(row.fit_band);
+      if (band.includes("high")) return 0;
+      if (band.includes("med")) return 1;
+      if (band.includes("low")) return 2;
+      const score = Number(row.fit_score);
+      if (!Number.isNaN(score)) {
+        if (score >= 70) return 0;
+        if (score >= 45) return 1;
+        return 2;
+      }
+      return 3;
+    }
+
+    function dateValue(value, missingHigh = true) {
+      const date = parseDate(value);
+      if (date) return date.getTime();
+      return missingHigh ? Number.MAX_SAFE_INTEGER : 0;
+    }
+
+    function updatedValue(value) {
+      const date = value ? new Date(value) : null;
+      return date && !Number.isNaN(date.getTime()) ? date.getTime() : 0;
+    }
+
+    function sortItems(items) {
+      return [...items].sort((a, b) => {
+        if (sortMode === "Due Date") return dateValue(a.due_date) - dateValue(b.due_date);
+        if (sortMode === "Recently Updated") return updatedValue(b.last_updated) - updatedValue(a.last_updated);
+        if (sortMode === "Stage") {
+          const aStage = STAGE_ORDER.indexOf(currentStage(a));
+          const bStage = STAGE_ORDER.indexOf(currentStage(b));
+          return (aStage < 0 ? 99 : aStage) - (bStage < 0 ? 99 : bStage);
+        }
+        const flagged = Number(isFlagged(b)) - Number(isFlagged(a));
+        if (flagged) return flagged;
+        const fit = fitRank(a) - fitRank(b);
+        if (fit) return fit;
+        return dateValue(a.due_date) - dateValue(b.due_date);
+      });
+    }
+
     function renderCounts(items) {
-      const counts = [
-        ["total", opportunities.length],
-        ["triage", countBy(r => currentStage(r) === "Triage")],
-        ["intake", countBy(r => currentStage(r) === "Intake" || r.operator_status === "documents_needed")],
-        ["quote/dev", countBy(r => currentStage(r) === "Development")],
-        ["ready", countBy(r => currentStage(r) === "Ready to Submit")],
-        ["submitted", countBy(r => currentStage(r) === "Execution")],
-        ["park/done", countBy(r => ["Archive", "Done"].includes(currentStage(r)))]
+      const tabCounts = filterCounts();
+      const summary = [
+        ["Active", tabCounts["Active Review"] || 0],
+        ["Flagged", tabCounts["Flagged"] || 0],
+        ["Due This Week", countBy(dueThisWeek)],
+        ["Total", opportunities.length]
       ];
-      document.getElementById("counts").innerHTML = counts.map(([k, v]) => `<span>${h(k)}: <b>${v}</b></span>`).join("");
+      document.getElementById("counts").innerHTML = summary.map(([k, v]) => `<span>${h(k)}: <b>${v}</b></span>`).join("");
       document.getElementById("position").textContent = items.length ? `${Math.min(activeIndex + 1, items.length)} / ${items.length}` : "0 / 0";
     }
 
