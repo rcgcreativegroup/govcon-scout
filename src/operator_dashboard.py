@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import zipfile
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -198,6 +199,14 @@ DOCUMENT_HINTS = [
     ("attachments_maps", ["attachment", "att_", "map", "facilities"]),
     ("sources_sought_rfi", ["sources sought", "rfi", "request for information"]),
 ]
+
+SUPPORTED_ANALYSIS_EXTENSIONS = {
+    ".pdf",
+    ".txt",
+    ".csv",
+    ".xlsx",
+    ".docx",
+}
 
 
 def safe_text(value):
@@ -790,8 +799,10 @@ def update_synopsis_for_notice(notice_id, synopsis):
     found = False
     for row in rows:
         if safe_text(row.get("notice_id")) == notice_id:
-            row["description"] = synopsis
-            row["synopsis"] = synopsis
+            if not meaningful_text(row.get("description")):
+                row["description"] = synopsis
+            if not meaningful_text(row.get("synopsis")):
+                row["synopsis"] = synopsis
             found = True
             break
     if not found:
@@ -834,14 +845,14 @@ def relative_existing(path):
 
 
 def folder_has_files(folder):
-    return folder.exists() and any(path.is_file() for path in folder.iterdir())
+    return folder.exists() and any(path.is_file() for path in folder.rglob("*"))
 
 
 def path_has_files(path):
     if path.is_file():
         return True
     if path.is_dir():
-        return any(item.is_file() for item in path.iterdir())
+        return any(item.is_file() for item in path.rglob("*"))
     return False
 
 
@@ -1036,6 +1047,52 @@ def local_documents_exist(notice_id):
     return folder_has_files(DOWNLOADS_DIR / notice_id) or folder_has_files(MANUAL_UPLOADS_DIR / notice_id)
 
 
+def supported_documents(folder):
+    folder = Path(folder)
+    if not folder.exists():
+        return []
+    return sorted(
+        path for path in folder.rglob("*")
+        if path.is_file() and path.suffix.lower() in SUPPORTED_ANALYSIS_EXTENSIONS
+    )
+
+
+def extract_zip_files(folder):
+    folder = Path(folder)
+    if not folder.exists():
+        return [], ""
+    extracted = []
+    for zip_path in sorted(folder.rglob("*.zip")):
+        target_dir = folder / "extracted"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(zip_path, "r") as archive:
+                for member in archive.infolist():
+                    member_path = Path(member.filename)
+                    if member_path.is_absolute() or ".." in member_path.parts:
+                        return extracted, f"Unsafe ZIP entry rejected: {member.filename}"
+                    target_path = (target_dir / member.filename).resolve()
+                    try:
+                        target_path.relative_to(target_dir.resolve())
+                    except ValueError:
+                        return extracted, f"Unsafe ZIP entry rejected: {member.filename}"
+                archive.extractall(target_dir)
+                extracted.append(str(zip_path.relative_to(BASE_DIR)))
+        except zipfile.BadZipFile:
+            return extracted, f"Invalid ZIP file: {zip_path.relative_to(BASE_DIR)}"
+        except OSError as error:
+            return extracted, f"ZIP extraction failed for {zip_path.relative_to(BASE_DIR)}: {error}"
+    return extracted, ""
+
+
+def working_documents_dir(notice_id):
+    downloads_folder = DOWNLOADS_DIR / notice_id
+    manual_folder = MANUAL_UPLOADS_DIR / notice_id
+    if supported_documents(downloads_folder) or folder_has_files(downloads_folder):
+        return "downloads", downloads_folder
+    return "manual_uploads", manual_folder
+
+
 def short_output(text, limit=3000):
     text = safe_text(text)
     if len(text) <= limit:
@@ -1115,10 +1172,25 @@ def action_run_ai_review(notice_id):
     row = row_for_notice(notice_id)
     if not local_documents_exist(notice_id):
         return {
-            "status": "warning",
-            "message": "No local documents found. Upload documents or prepare SAM docs first.",
+            "status": "error",
+            "message": "No local documents found. Upload documents first before running AI review.",
         }
-    downloads_dir = "downloads" if folder_has_files(DOWNLOADS_DIR / notice_id) else "manual_uploads"
+
+    downloads_dir, docs_folder = working_documents_dir(notice_id)
+    extracted_zips, extraction_error = extract_zip_files(docs_folder)
+    if extraction_error:
+        return {
+            "status": "error",
+            "message": extraction_error,
+            "extracted_zips": extracted_zips,
+        }
+    if not supported_documents(docs_folder):
+        return {
+            "status": "error",
+            "message": "No supported local documents found after ZIP extraction. Upload PDF, DOCX, XLSX, CSV, or TXT files before running AI review.",
+            "extracted_zips": extracted_zips,
+        }
+
     commands = [
         [sys.executable, "src/local_document_extractor.py", "--notice-id", notice_id, "--downloads-dir", downloads_dir],
         [sys.executable, "src/bid_no_bid_analyzer.py", "--notice-id", notice_id],
@@ -1129,9 +1201,9 @@ def action_run_ai_review(notice_id):
     if ok:
         refresh_row_after_artifacts(notice_id, "Development")
         append_note(notice_id, "general_note", "AI review completed from dashboard; moved to Development.", "Development", "dashboard_action")
-        return {"status": "ok", "message": "AI review completed.", "commands": summaries}
+        return {"status": "ok", "message": "AI review completed.", "commands": summaries, "extracted_zips": extracted_zips}
     append_note(notice_id, "risk_note", "AI review failed; operator review required.", row.get("macro_stage", ""), "dashboard_action")
-    return {"status": "warning", "message": "AI review failed. Opportunity was not passed or archived.", "commands": summaries}
+    return {"status": "error", "message": "AI review failed. Opportunity was not advanced.", "commands": summaries, "extracted_zips": extracted_zips}
 
 
 def action_draft_response(notice_id):
@@ -1173,6 +1245,45 @@ def action_draft_response(notice_id):
     return {"status": "ok", "message": "Draft placeholder created.", "draft_path": rel}
 
 
+def extract_sam_uuid(*values):
+    for value in values:
+        text = safe_text(value)
+        if not text:
+            continue
+        match = re.search(r"/opp/([A-Za-z0-9]{20,})/view", text)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def pipe_links(value):
+    text = safe_text(value)
+    if not text:
+        return []
+    links = [item.strip() for item in text.split(" | ") if item.strip()]
+    links.extend(re.findall(r"https?://[^\s\"'<>]+", text))
+    return links
+
+
+def detail_links_for_synopsis(row, notice_id, sam_uuid):
+    links = []
+    for field in ["sam_detail_api_links", "sam_detail_raw_links", "sam_detail_raw_resource_links"]:
+        links.extend(pipe_links(row.get(field)))
+    if sam_uuid:
+        links.append(f"https://api.sam.gov/prod/opportunities/v2/search?noticeid={sam_uuid}")
+    links.append(f"https://api.sam.gov/prod/opportunities/v2/search?noticeid={notice_id}")
+    seen = set()
+    usable = []
+    for link in links:
+        if not link or link in seen:
+            continue
+        if "noticeid=" not in link.lower() and "noticeId=" not in link:
+            continue
+        usable.append(link)
+        seen.add(link)
+    return usable
+
+
 def fetch_synopsis_from_sam(notice_id):
     try:
         api_key = get_sam_api_key()
@@ -1186,22 +1297,47 @@ def fetch_synopsis_from_sam(notice_id):
     if not row:
         return {"status": "error", "message": "notice_id not found."}
 
+    source_url = safe_text(row.get("source_url"))
+    ui_link = safe_text(row.get("ui_link"))
+    sam_uuid = extract_sam_uuid(source_url, ui_link)
     opportunity = dict(row)
-    opportunity["sam_notice_id"] = notice_id
-    opportunity["noticeId"] = notice_id
-    opportunity["id"] = notice_id
+    opportunity.update({
+        "notice_id": notice_id,
+        "noticeId": notice_id,
+        "sam_notice_id": notice_id,
+        "id": sam_uuid or notice_id,
+        "sam_internal_id": sam_uuid,
+        "uiLink": source_url or ui_link,
+        "source_url": source_url,
+        "ui_link": ui_link,
+        "sam_detail_api_links": safe_text(row.get("sam_detail_api_links")),
+    })
 
     try:
         with requests.Session() as session:
-            synopsis = valid_synopsis_text(fetch_notice_description(session, api_key, opportunity))
+            synopsis = ""
+            description_attempts = []
+            if sam_uuid:
+                description_attempts.append({
+                    **opportunity,
+                    "sam_notice_id": sam_uuid,
+                    "noticeId": sam_uuid,
+                    "id": sam_uuid,
+                })
+            description_attempts.append(opportunity)
+
+            for attempt in description_attempts:
+                synopsis = valid_synopsis_text(fetch_notice_description(session, api_key, attempt))
+                if synopsis:
+                    break
 
             if not synopsis:
-                detail_link = f"https://api.sam.gov/prod/opportunities/v2/search?noticeid={notice_id}"
-                _response_json, raw_detail, error = fetch_sam_detail(session, api_key, detail_link)
-                if raw_detail:
-                    synopsis = valid_synopsis_text(extract_description_from_detail(raw_detail))
-                elif error:
-                    synopsis = ""
+                for detail_link in detail_links_for_synopsis(row, notice_id, sam_uuid):
+                    _response_json, raw_detail, _error = fetch_sam_detail(session, api_key, detail_link)
+                    if raw_detail:
+                        synopsis = valid_synopsis_text(extract_description_from_detail(raw_detail))
+                    if synopsis:
+                        break
 
         if not synopsis:
             return {

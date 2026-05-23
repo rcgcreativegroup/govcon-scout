@@ -257,7 +257,7 @@ def get_supported_files(folder):
 
     files = []
 
-    for path in sorted(folder.iterdir()):
+    for path in sorted(folder.rglob("*")):
         if not path.is_file():
             continue
 

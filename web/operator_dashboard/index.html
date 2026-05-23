@@ -1191,7 +1191,7 @@
     }
 
     async function runAction(row, action) {
-      statusMessage = `Running ${action}...`;
+      statusMessage = action === "run_ai_review" ? "AI Review running — this may take a moment." : `Running ${action}...`;
       render();
       const result = await api(`/api/action/${action}`, {
         method: "POST",
