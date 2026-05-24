@@ -73,7 +73,16 @@
     .brand { color: var(--green); font-size: 14px; font-weight: bold; }
     .counts { color: var(--secondary); display: flex; gap: 14px; flex-wrap: wrap; }
     .counts b { color: var(--text); }
-    .search-wrap { display: grid; grid-template-columns: 1fr 70px; gap: 6px; }
+    .search-wrap { display: grid; grid-template-columns: 1fr 70px 120px; gap: 6px; }
+    .workspace-top-btn {
+      border: 1px solid #9966ff;
+      color: #9966ff;
+      background: transparent;
+      font: 11px "Courier New", monospace;
+      padding: 7px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
     .filterbar {
       display: flex;
       gap: 6px;
@@ -103,12 +112,65 @@
     }
     .workflow {
       color: var(--secondary);
-      border-bottom: 1px solid var(--border);
-      padding: 7px 12px;
-      background: #101012;
+      border-bottom: 1px solid #1e1e22;
+      box-sizing: border-box;
+      height: 29px;
+      padding: 5px 12px;
+      background: #0a0a0c;
+      white-space: nowrap;
+      overflow: visible;
+      position: relative;
+      z-index: 20;
+    }
+    .workflow-ribbon {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      height: 100%;
       white-space: nowrap;
       overflow: hidden;
-      text-overflow: ellipsis;
+    }
+    .workflow-stage {
+      font: 10px "Courier New", monospace;
+      padding: 2px 8px;
+      border-radius: 2px;
+      border: 1px solid #222222;
+      color: #2a2a2e;
+      background: transparent;
+      cursor: pointer;
+      line-height: 10px;
+    }
+    .workflow-stage.current {
+      border-color: #00ff88;
+      color: #00ff88;
+      background: #0a1a0a;
+      cursor: default;
+    }
+    .workflow-stage.done {
+      border-color: #444444;
+      color: #555555;
+      background: transparent;
+    }
+    .workflow-stage.future {
+      border-color: #222222;
+      color: #2a2a2e;
+      background: transparent;
+    }
+    .workflow-stage-confirm {
+      position: absolute;
+      top: calc(100% + 2px);
+      left: var(--confirm-left, 12px);
+      color: #f0a500;
+      background: #0a0a0c;
+      border: 1px solid #2a2a2e;
+      padding: 4px 6px;
+      font: 11px "Courier New", monospace;
+      z-index: 30;
+    }
+    .workflow-stage-confirm button {
+      font-size: 10px;
+      padding: 2px 7px;
+      margin-left: 5px;
     }
     .main {
       display: grid;
@@ -142,6 +204,13 @@
     .tag.high { color: var(--green); border-color: var(--green); }
     .tag.med { color: var(--amber); border-color: var(--amber); }
     .tag.low { color: var(--red); border-color: var(--red); }
+    .ws-queue-tag {
+      color: #9966ff;
+      font: 9px "Courier New", monospace;
+      border: 0;
+      background: transparent;
+      padding: 1px 2px;
+    }
     .eligibility-dot {
       width: 8px;
       height: 8px;
@@ -161,7 +230,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 20;
+      z-index: 9000;
     }
     .modal {
       width: min(560px, calc(100vw - 28px));
@@ -312,15 +381,29 @@
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
-    .ribbon { display: flex; gap: 5px; flex-wrap: wrap; margin: 10px 0; }
+    .ribbon { display: flex; gap: 5px; flex-wrap: wrap; margin: 10px 0 4px; }
     .stage {
       padding: 5px 7px;
-      border: 1px solid var(--border);
-      background: #111114;
-      color: var(--muted);
+      min-width: 82px;
+      text-align: center;
+      border: 1px solid #2a2a2e;
+      background: transparent;
+      color: #333333;
+      cursor: pointer;
     }
-    .stage.current { color: var(--green); border-color: var(--green); background: var(--go-bg); }
-    .stage.done { color: var(--secondary); border-color: #33513c; }
+    .stage.current { color: #00ff88; border-color: #00ff88; background: #0a1a0a; cursor: default; }
+    .stage.done { color: #666666; border-color: #444444; background: transparent; }
+    .stage.future { color: #333333; border-color: #2a2a2e; background: transparent; }
+    .stage-confirm {
+      color: #f0a500;
+      font: 11px "Courier New", monospace;
+      margin: 2px 0 10px;
+    }
+    .stage-confirm button {
+      font-size: 11px;
+      padding: 3px 8px;
+      margin-left: 5px;
+    }
     .countdown.ok { color: var(--secondary); }
     .countdown.warn { color: var(--amber); }
     .countdown.danger { color: var(--red); }
@@ -366,6 +449,35 @@
       color: var(--secondary);
       min-height: 18px;
       margin-top: 8px;
+    }
+    .action-result {
+      border: 1px solid;
+      padding: 9px;
+      font: 11px "Courier New", monospace;
+      line-height: 1.45;
+    }
+    .action-result.success {
+      border-color: var(--green);
+      background: #0a1a0a;
+      color: var(--green);
+    }
+    .action-result.error {
+      border-color: var(--red);
+      background: #1a0a0a;
+      color: var(--red);
+    }
+    .action-result-title {
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .action-result-detail {
+      color: var(--secondary);
+      margin-top: 4px;
+    }
+    .action-result-updated {
+      color: var(--cyan);
+      font-size: 10px;
+      margin-top: 4px;
     }
     .source-row {
       margin-top: 7px;
@@ -427,6 +539,45 @@
       max-height: 240px;
       overflow-y: auto;
     }
+    #sticky-context-bar {
+      position: fixed;
+      width: 100%;
+      background: #0e0e10;
+      border-bottom: 1px solid #2a2a2e;
+      z-index: 900;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 36px;
+      top: 0; /* overridden immediately by JS */
+    }
+    #sticky-left { padding-left: 16px; }
+    #sticky-stage-label {
+      display: block;
+      color: #8fbcd4;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+    #sticky-stage-name {
+      color: #00ff88;
+      font-size: 13px;
+      font-weight: bold;
+      font-family: "Courier New", monospace;
+      line-height: 1.2;
+    }
+    #sticky-actions {
+      padding-right: 16px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    #sticky-actions button {
+      font-size: 11px;
+      padding: 4px 10px;
+    }
     @media (max-width: 900px) {
       .topbar { grid-template-columns: 1fr; height: auto; }
       .main { grid-template-columns: 1fr; }
@@ -434,10 +585,196 @@
       .card { max-height: none; }
       .meta-grid, .columns, .checklist { grid-template-columns: 1fr; }
     }
+
+    /* ── AI WORKSPACE OVERLAY ─────────────────────────────────────────── */
+    #aiWorkspaceOverlay {
+      display: none; position: fixed; inset: 0; z-index: 10000;
+      background: rgba(0,0,0,0.85); overflow: hidden;
+    }
+    #aiWorkspaceOverlay.open { display: flex; align-items: stretch; justify-content: center; }
+    #aiWorkspacePanel {
+      display: flex; flex-direction: column; width: 100%; height: 100%;
+      background: #0e0e10; border: 1px solid #2a2a2e; overflow: hidden;
+    }
+    #aiWsHeader {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #141416; border-bottom: 1px solid #2a2a2e;
+      padding: 10px 16px; flex-shrink: 0;
+    }
+    #aiWsHeader .ws-title { color: #00ff88; font: bold 13px 'Courier New',monospace; }
+    #aiWsHeader .ws-notice { color: #8fbcd4; font: 11px 'Courier New',monospace; margin-left: 10px; }
+    #aiWsClose {
+      background: transparent; border: 1px solid #555; color: #ccc;
+      font: 13px 'Courier New',monospace; padding: 3px 10px; cursor: pointer;
+    }
+    #aiWsClose:hover { border-color: #ff4444; color: #ff4444; }
+    #aiWsBody { display: flex; flex: 1; overflow: hidden; }
+    #aiWsLeft {
+      width: 300px; min-width: 260px; flex-shrink: 0;
+      background: #0c0c0e; border-right: 1px solid #2a2a2e;
+      overflow-y: auto; padding: 12px;
+    }
+    #aiWsRight {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+      background: #0e0e10;
+    }
+    #aiWsConvo {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .ws-msg-user {
+      align-self: flex-end; max-width: 80%;
+      background: #1a2e1a; color: #00ff88;
+      font: 12px 'Courier New',monospace; padding: 10px 14px;
+      border-radius: 4px; white-space: pre-wrap; word-wrap: break-word;
+    }
+    .ws-msg-ai {
+      align-self: flex-start; max-width: 90%;
+      background: #141416; color: #e0e0e0;
+      font: 12px 'Courier New',monospace; padding: 10px 14px;
+      border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; line-height: 1.5;
+    }
+    .ws-msg-error {
+      align-self: flex-start; max-width: 90%;
+      background: #1e0808; color: #ff6666;
+      font: 12px 'Courier New',monospace; padding: 8px 12px; border-radius: 4px;
+    }
+    .ws-msg-thinking {
+      align-self: flex-start; color: #555;
+      font: 12px 'Courier New',monospace; padding: 4px 0;
+      animation: ws-blink 1s step-end infinite;
+    }
+    .ws-session-summary {
+      align-self: stretch;
+      color: #555555;
+      font: 10px 'Courier New',monospace;
+      border-top: 1px solid #2a2a2e;
+      border-bottom: 1px solid #2a2a2e;
+      padding: 7px 0;
+      text-align: center;
+      white-space: pre-wrap;
+    }
+    .ws-continuation {
+      align-self: stretch;
+      color: #555555;
+      font: 10px 'Courier New',monospace;
+      text-align: center;
+      padding: 4px 0;
+    }
+    @keyframes ws-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .ws-save-bar {
+      display: flex; align-items: center; gap: 8px; margin-top: 6px;
+    }
+    .ws-save-btn {
+      font: 10px 'Courier New',monospace; padding: 3px 8px;
+      border: 1px solid #4499ff; color: #4499ff; background: transparent; cursor: pointer;
+    }
+    .ws-save-btn:hover { background: #0a1a2e; }
+    .ws-save-confirm { font: 10px 'Courier New',monospace; color: #00ff88; }
+    #aiWsInputRow {
+      display: flex; gap: 8px; padding: 12px 16px;
+      border-top: 1px solid #2a2a2e; flex-shrink: 0; background: #0e0e10;
+    }
+    #aiWsInput {
+      flex: 1; background: #1a1a1e; color: #e0e0e0; border: 1px solid #2a2a2e;
+      font: 12px 'Courier New',monospace; padding: 8px 10px; resize: vertical;
+      min-height: 48px; max-height: 120px;
+    }
+    #aiWsInput:focus { outline: none; border-color: #4a4a5e; }
+    #aiWsSend {
+      background: #00ff88; color: #000; font: bold 12px 'Courier New',monospace;
+      border: none; padding: 8px 18px; cursor: pointer; align-self: flex-end;
+    }
+    #aiWsSend:disabled { opacity: 0.4; cursor: default; }
+    #aiWsSend:hover:not(:disabled) { background: #00dd77; }
+    .ws-section-label {
+      color: #8fbcd4; font: bold 10px 'Courier New',monospace;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin: 14px 0 6px; display: block;
+    }
+    .ws-section-label:first-child { margin-top: 0; }
+    .ws-check { list-style: none; padding: 0; margin: 0 0 6px; }
+    .ws-check li { font: 11px 'Courier New',monospace; padding: 2px 0; }
+    .ws-check .has { color: #00ff88; }
+    .ws-check .missing { color: #555; }
+    .ws-meta-row { font: 11px 'Courier New',monospace; color: #aaa; padding: 2px 0; }
+    .ws-meta-row span { color: #e0e0e0; }
+    .ws-qa-btn {
+      display: block; width: 100%; text-align: left;
+      background: transparent; border: 1px solid #9966ff;
+      color: #9966ff; font: 11px 'Courier New',monospace;
+      padding: 5px 8px; margin-bottom: 4px; cursor: pointer;
+    }
+    .ws-qa-btn:hover:not(:disabled) { background: #1a0a2e; }
+    .ws-qa-btn:disabled { opacity: 0.4; cursor: default; }
+    .ws-draft-btn {
+      display: block; width: 100%; text-align: left;
+      background: transparent; border: 1px solid #4499ff;
+      color: #4499ff; font: 11px 'Courier New',monospace;
+      padding: 4px 8px; margin-bottom: 3px; cursor: pointer;
+    }
+    .ws-draft-btn:hover { background: #0a1a2e; }
+    #aiWsLeftLoading { color: #555; font: 11px 'Courier New',monospace; padding: 8px 0; }
+    #draftReadModal {
+      display: none; position: fixed; inset: 0; z-index: 11000;
+      background: rgba(0,0,0,0.9); align-items: center; justify-content: center;
+    }
+    #draftReadModal.open { display: flex; }
+    #draftReadModalInner {
+      background: #141416; border: 1px solid #2a2a2e;
+      width: 70vw; max-height: 80vh; display: flex; flex-direction: column;
+      padding: 20px; gap: 12px;
+    }
+    #draftReadModal h3 { color: #8fbcd4; font: 13px 'Courier New',monospace; margin: 0; }
+    #draftReadModalBody {
+      flex: 1; overflow-y: auto; background: #0c0c0e;
+      color: #e0e0e0; font: 12px 'Courier New',monospace;
+      padding: 12px; white-space: pre-wrap; word-wrap: break-word;
+    }
+    #draftReadModalClose {
+      background: transparent; border: 1px solid #555; color: #ccc;
+      font: 12px 'Courier New',monospace; padding: 5px 14px;
+      cursor: pointer; align-self: flex-end;
+    }
+    #workspaceBrowserOverlay {
+      display: none; position: fixed; inset: 0; z-index: 10050;
+      background: rgba(0,0,0,0.88); align-items: stretch; justify-content: center;
+    }
+    #workspaceBrowserOverlay.open { display: flex; }
+    #workspaceBrowserPanel {
+      width: 100%; height: 100%; background: #0e0e10;
+      border: 1px solid #2a2a2e; display: flex; flex-direction: column;
+    }
+    #workspaceBrowserHeader {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; background: #141416; border-bottom: 1px solid #2a2a2e;
+    }
+    #workspaceBrowserHeader h2 {
+      color: #9966ff; font: bold 13px 'Courier New',monospace; margin: 0;
+    }
+    #workspaceBrowserClose {
+      background: transparent; border: 1px solid #555; color: #ccc;
+      font: 13px 'Courier New',monospace; padding: 3px 10px; cursor: pointer;
+    }
+    #workspaceBrowserList { overflow-y: auto; padding: 16px; }
+    .workspace-session-row {
+      border-bottom: 1px solid #2a2a2e; padding: 10px 0;
+      display: grid; grid-template-columns: 1fr 150px; gap: 12px; align-items: center;
+    }
+    .workspace-session-title {
+      color: #e0e0e0; font: 12px 'Courier New',monospace; margin-bottom: 4px;
+    }
+    .workspace-session-meta {
+      color: #888; font: 11px 'Courier New',monospace;
+    }
+    .workspace-open-btn {
+      border: 1px solid #9966ff; color: #9966ff; background: transparent;
+      font: 11px 'Courier New',monospace; padding: 6px 10px; cursor: pointer;
+    }
   </style>
 </head>
 <body>
-  <div class="topbar">
+  <div class="topbar" id="top-bar">
     <div>
       <div class="brand">GOVCON SCOUT // BID DESK</div>
       <div class="subtle" id="position">loading queue</div>
@@ -446,24 +783,32 @@
     <div class="search-wrap">
       <input id="search" placeholder="search notice, title, agency, notes...">
       <button id="resetSearch">RESET</button>
+      <button id="openWorkspacesBtn" class="workspace-top-btn">⬡ Workspaces</button>
     </div>
   </div>
+  <div id="sticky-context-bar">
+    <div id="sticky-left">
+      <span id="sticky-stage-label">CURRENT STAGE</span>
+      <span id="sticky-stage-name">—</span>
+    </div>
+    <div id="sticky-actions"></div>
+  </div>
   <div class="filterbar" id="filters"></div>
-  <div class="workflow">Review the job &rarr; Decide if doable/sourceable &rarr; Check requirements &rarr; Upload docs if needed &rarr; Run AI review &rarr; Get quote/intel &rarr; Draft/send response &rarr; Call/contact &rarr; Move to next</div>
+  <div class="workflow" id="workflowRibbon"></div>
   <div class="main">
     <aside class="queue" id="queue"></aside>
     <main class="card" id="card"></main>
   </div>
 
   <script>
-    const FILTERS = ["Active", "Watch List", "Needs Docs", "AI Reviewed", "Sources Sought", "Flagged", "All", "Archive"];
+    const FILTERS = ["Active", "Watch List", "Move Forward", "Manual Review", "Needs Docs", "AI Reviewed", "Sources Sought", "Flagged", "Workspaces", "All", "Archive"];
     const FULL_STAGE = { Ready: "Ready to Submit" };
     const ACTIVE_STAGES = ["Triage", "Intake", "Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"];
     const STAGE_ORDER = ["Triage", "Intake", "Manual Review", "AI Review", "Development", "Ready to Submit", "Execution", "Archive", "Done"];
     const ARCHIVE_TERMS = ["pass", "ignore", "poor fit", "duplicate", "already covered", "archive", "parked"];
     const UEI = "QJZTCE6MKBG5";
     const BUTTONS = {
-      "Triage": ["YES — Intake Docs", "Manual Review", "PASS"],
+      "Triage": ["YES — Intake Docs", "Move Forward", "Manual Review", "PASS"],
       "Intake": ["Prepare SAM Docs", "Manual Upload", "Bypass to AI Review", "PASS"],
       "Manual Review": ["Advance to AI Review", "Advance to Development", "PASS"],
       "AI Review": ["Run AI Review", "Flag Disqualifier", "Advance to Development"],
@@ -481,6 +826,11 @@
     let sortMode = "Priority";
     let searchTerm = "";
     let statusMessage = "";
+    let actionResult = null;
+    let workspaceSessions = [];
+    let pendingStageOverride = "";
+    let pendingWorkflowStageOverride = "";
+    let workflowStageConfirmLeft = 12;
 
     const h = value => String(value ?? "").replace(/[&<>"']/g, ch => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -554,8 +904,27 @@
       config = await api("/api/config");
       const data = await api("/api/opportunities");
       opportunities = data.opportunities || [];
+      await refreshWorkspaceSessions(false);
       renderFilters();
       render();
+      requestAnimationFrame(adjustLayout);
+    }
+
+    async function refreshWorkspaceSessions(updateUi = true) {
+      try {
+        const data = await api("/api/workspace-sessions");
+        workspaceSessions = data.sessions || [];
+      } catch {
+        workspaceSessions = [];
+      }
+      if (updateUi) {
+        renderFilters();
+        renderQueue(filteredItems());
+      }
+    }
+
+    function workspaceSessionIds() {
+      return new Set(workspaceSessions.map(session => typeof session === "string" ? session : session.notice_id));
     }
 
     function searchableText(row) {
@@ -576,7 +945,17 @@
         if (name === "All") return true;
         if (name === "Active") return activeReview(row);
         if (name === "Watch List") return ["ineligible_now", "watch_list"].includes(setAsideEligibility(row).bucket);
+        if (name === "Move Forward") {
+          if (!notArchivedUnlessFlagged(row)) return false;
+          return textOf(row.operator_status).includes("move_forward");
+        }
+        if (name === "Manual Review") {
+          if (!notArchivedUnlessFlagged(row)) return false;
+          return currentStage(row) === "Manual Review"
+            || textOf(row.operator_status).includes("manual_review");
+        }
         if (name === "Flagged") return isFlagged(row);
+        if (name === "Workspaces") return workspaceSessionIds().has(row.notice_id);
         if (name === "Archive") return isArchivedStatus(row);
         if (name === "Needs Docs") {
           if (!notArchivedUnlessFlagged(row)) return false;
@@ -626,6 +1005,9 @@
         </div>`;
       document.querySelectorAll("#filters button").forEach(btn => {
         btn.onclick = () => {
+          clearActionResult();
+          pendingStageOverride = "";
+          pendingWorkflowStageOverride = "";
           activeFilter = btn.dataset.stage;
           activeIndex = 0;
           renderFilters();
@@ -636,6 +1018,9 @@
       if (sort) sort.onchange = event => {
         sortMode = event.target.value;
         activeIndex = 0;
+        clearActionResult();
+        pendingStageOverride = "";
+        pendingWorkflowStageOverride = "";
         render();
       };
       const review = document.getElementById("reviewIneligible");
@@ -729,6 +1114,7 @@
       queue.innerHTML = items.map((row, index) => {
         const band = String(row.fit_band || "").toLowerCase();
         const eligibility = setAsideEligibility(row);
+        const wsTag = workspaceSessionIds().has(row.notice_id) ? `<span class="ws-queue-tag">⬡ WS</span>` : "";
         return `
           <div class="queue-item ${index === activeIndex ? "active" : ""}" data-index="${index}">
             <div class="queue-title">${h(row.title || row.notice_id || "untitled")}</div>
@@ -739,11 +1125,15 @@
               <span class="tag">${h(row.lane || "lane n/a")}</span>
               <span class="tag">${h(currentStage(row))}</span>
               <span class="tag">${h(readinessTag(row))}</span>
+              ${wsTag}
             </div>
           </div>`;
       }).join("");
       document.querySelectorAll(".queue-item").forEach(item => {
         item.onclick = () => {
+          clearActionResult();
+          pendingStageOverride = "";
+          pendingWorkflowStageOverride = "";
           activeIndex = Number(item.dataset.index);
           render();
         };
@@ -866,9 +1256,49 @@
     function renderRibbon(stage) {
       const stages = config.stage_enums?.stages || [];
       const current = stages.indexOf(stage);
-      return `<div class="ribbon">${stages.map((s, i) =>
-        `<span class="stage ${s === stage ? "current" : i < current ? "done" : ""}">${h(s)}</span>`
-      ).join("")}</div>`;
+      const confirm = pendingStageOverride
+        ? `<div class="stage-confirm">Move to ${h(pendingStageOverride)}? <button class="warn" id="stageConfirmBtn">Confirm</button><button id="stageCancelBtn">Cancel</button></div>`
+        : "";
+      return `<div class="ribbon">${stages.map((s, i) => {
+        const klass = s === stage ? "current" : i < current ? "done" : "future";
+        return `<span class="stage ${klass}" data-stage-override="${h(s)}">${h(s)}</span>`;
+      }).join("")}</div>${confirm}`;
+    }
+
+    function renderWorkflowRibbon(row) {
+      const container = document.getElementById("workflowRibbon");
+      if (!container) return;
+      const stages = config.stage_enums?.stages || [];
+      const stage = row ? currentStage(row) : "";
+      const current = stages.indexOf(stage);
+      const confirm = pendingWorkflowStageOverride
+        ? `<div class="workflow-stage-confirm" style="--confirm-left:${workflowStageConfirmLeft}px">Move to ${h(pendingWorkflowStageOverride)}? <button class="warn" id="workflowStageConfirmBtn">Confirm</button><button id="workflowStageCancelBtn">Cancel</button></div>`
+        : "";
+      container.innerHTML = `
+        <div class="workflow-ribbon">${stages.map((s, i) => {
+          const klass = s === stage ? "current" : i < current ? "done" : "future";
+          return `<span class="workflow-stage ${klass}" data-workflow-stage="${h(s)}">${h(s)}</span>`;
+        }).join("")}</div>
+        ${confirm}`;
+      container.querySelectorAll("[data-workflow-stage]").forEach(stageEl => {
+        stageEl.onclick = () => {
+          if (!row) return;
+          const targetStage = stageEl.dataset.workflowStage;
+          if (!targetStage || targetStage === currentStage(row)) return;
+          const rowRect = container.getBoundingClientRect();
+          const stageRect = stageEl.getBoundingClientRect();
+          workflowStageConfirmLeft = Math.max(4, Math.round(stageRect.left - rowRect.left));
+          pendingWorkflowStageOverride = targetStage;
+          renderWorkflowRibbon(row);
+        };
+      });
+      const cancel = document.getElementById("workflowStageCancelBtn");
+      if (cancel) cancel.onclick = () => {
+        pendingWorkflowStageOverride = "";
+        renderWorkflowRibbon(row);
+      };
+      const confirmBtn = document.getElementById("workflowStageConfirmBtn");
+      if (confirmBtn) confirmBtn.onclick = () => confirmWorkflowStageOverride(row);
     }
 
     function splitList(value) {
@@ -995,13 +1425,87 @@
         </div>`;
     }
 
+    function isInActionQueue(row) {
+      const stage = currentStage(row);
+      if (["Triage", "Intake", "Archive", "Done"].includes(stage)) return false;
+      if (isArchivedStatus(row)) return false;
+      if (textOf(row.operator_status).includes("move_forward")) return true;
+      if (textOf(row.operator_status).includes("manual_review")) return true;
+      if (stage === "Manual Review") return true;
+      if (stage === "Development") return true;
+      if (stage === "Ready to Submit") return true;
+      if (stage === "Execution") return true;
+      if (stage === "AI Review" && textOf(readiness(row).value).includes("ai reviewed")) return true;
+      return false;
+    }
+
     function actionButtons(row) {
       const stage = currentStage(row);
-      return (BUTTONS[stage] || []).map(label => {
+      const aiBtn = isInActionQueue(row)
+        ? `<button data-action-label="Open AI Workspace" style="border:1px solid #9966ff;color:#9966ff;background:transparent;font:11px 'Courier New',monospace;padding:6px 14px;cursor:pointer;">Open AI Workspace</button>`
+        : "";
+      return aiBtn + (BUTTONS[stage] || []).map(label => {
         const klass = label.includes("PASS") || label.includes("Disqualifier") ? "risk" :
           label.includes("Manual") || label.includes("Park") || label.includes("Back") ? "warn" : "go";
         return `<button class="${klass}" data-action-label="${h(label)}">${h(label)}</button>`;
       }).join("");
+    }
+
+    function renderActionResult() {
+      if (!actionResult) return "";
+      const ok = actionResult.kind !== "error";
+      const title = ok ? "✓ ACTION COMPLETE" : "✕ ACTION FAILED";
+      const fields = actionResult.fields && actionResult.fields.length
+        ? `<div class="action-result-detail">Fields filled: ${actionResult.fields.map(h).join(", ")}</div>`
+        : "";
+      const updated = actionResult.cardUpdated
+        ? `<div class="action-result-updated">↓ Card fields updated below</div>`
+        : "";
+      return `
+        <div class="action-result ${ok ? "success" : "error"}">
+          <div class="action-result-title">${title}</div>
+          <div>${h(actionResult.message || "")}</div>
+          ${fields}
+          ${updated}
+        </div>`;
+    }
+
+    function setActionResult(result) {
+      actionResult = result;
+      const slot = document.getElementById("actionResultSlot");
+      if (slot) slot.innerHTML = renderActionResult();
+    }
+
+    function clearActionResult() {
+      actionResult = null;
+      const slot = document.getElementById("actionResultSlot");
+      if (slot) slot.innerHTML = "";
+    }
+
+    function applyCardData(row, result) {
+      const cardData = result.card_data || {};
+      const keys = Object.keys(cardData);
+      for (const key of keys) row[key] = cardData[key];
+      if (cardData.next_data_step && !cardData.recommended_next_action) {
+        row.recommended_next_action = cardData.next_data_step;
+      }
+      if (result.macro_stage) row.macro_stage = result.macro_stage;
+      if (hasMeaningful(row.ai_summary) || hasMeaningful(row.requirements) || hasMeaningful(row.disqualifiers)) {
+        row.data_readiness = {
+          value: "AI Reviewed",
+          style: "green",
+          tag: "reviewed",
+          helper: "AI review outputs exist. Requirements and disqualifiers should be available."
+        };
+      } else if (hasMeaningful(row.document_status)) {
+        row.data_readiness = {
+          value: "Documents Ready",
+          style: "cyan",
+          tag: "docs ready",
+          helper: row.document_status
+        };
+      }
+      return keys.length > 0;
     }
 
     function renderCard(row, items) {
@@ -1069,11 +1573,8 @@
           </div>
         </div>
 
-        <div class="section">
-          <h3>Stage Actions</h3>
-          <div class="actions">${actionButtons(row)}</div>
-          <div class="status-line" id="statusLine">${h(statusMessage)}</div>
-        </div>
+        <div class="status-line" id="statusLine">${h(statusMessage)}</div>
+        <div id="actionResultSlot">${renderActionResult()}</div>
 
         ${renderUpload(row)}
 
@@ -1132,10 +1633,22 @@
           row.synopsis = result.synopsis;
           const container = document.getElementById("descriptionContent");
           if (container) container.innerHTML = renderDescription(row);
+          setActionResult({
+            kind: "success",
+            message: "Synopsis loaded from SAM API",
+            fields: ["synopsis", "description"],
+            cardUpdated: true
+          });
           return;
         }
         if (result.status === "empty") {
           status.textContent = "SAM returned no description for this notice — try uploading documents manually or use the source link above";
+          setActionResult({
+            kind: "success",
+            message: "SAM returned no description for this notice — try uploading documents manually or use the source link above",
+            fields: [],
+            cardUpdated: false
+          });
           button.disabled = false;
           button.textContent = "⟳ Fetch Synopsis";
           return;
@@ -1144,14 +1657,70 @@
         status.textContent = result.message && result.message.includes("SAM API key")
           ? "SAM API key not configured — check .env file"
           : "API error — check terminal output and try again";
+        setActionResult({
+          kind: "error",
+          message: status.textContent,
+          fields: [],
+          cardUpdated: false
+        });
         button.disabled = false;
         button.textContent = "⟳ Fetch Synopsis";
       } catch (error) {
         status.className = "fetch-synopsis-status error";
         status.textContent = "API error — check terminal output and try again";
+        setActionResult({
+          kind: "error",
+          message: "API error — check terminal output and try again",
+          fields: [],
+          cardUpdated: false
+        });
         button.disabled = false;
         button.textContent = "⟳ Fetch Synopsis";
       }
+    }
+
+    function updateStickyBar(row) {
+      const stageNameEl = document.getElementById('sticky-stage-name');
+      const actionsEl   = document.getElementById('sticky-actions');
+      if (!stageNameEl || !actionsEl) return;
+      if (!row) { stageNameEl.textContent = '—'; actionsEl.innerHTML = ''; return; }
+      const stage = currentStage(row);
+      stageNameEl.textContent = stage;
+      const aiBtn = isInActionQueue(row)
+        ? `<button data-sticky-action="Open AI Workspace" style="border:1px solid #9966ff;color:#9966ff;background:transparent;font:11px 'Courier New',monospace;padding:4px 10px;cursor:pointer;">Open AI Workspace</button>`
+        : "";
+      actionsEl.innerHTML = aiBtn + (BUTTONS[stage] || []).map(label => {
+        const klass = label.includes('PASS') || label.includes('Disqualifier') ? 'risk'
+          : label.includes('Manual') || label.includes('Park') || label.includes('Back') ? 'warn'
+          : 'go';
+        return `<button class="${h(klass)}" data-sticky-action="${h(label)}">${h(label)}</button>`;
+      }).join('');
+      actionsEl.querySelectorAll('[data-sticky-action]').forEach(btn => {
+        btn.onclick = () => handleButton(row, btn.dataset.stickyAction);
+      });
+    }
+
+    function adjustLayout() {
+      const topBarEl    = document.getElementById('top-bar');
+      const stickyBarEl = document.getElementById('sticky-context-bar');
+      const filtersEl   = document.getElementById('filters');
+      const workflowEl  = document.querySelector('.workflow');
+      const mainEl      = document.querySelector('.main');
+      const queueEl     = document.getElementById('queue');
+      const cardEl      = document.getElementById('card');
+      if (!topBarEl || !stickyBarEl) return;
+      const topBarH = topBarEl.offsetHeight;
+      stickyBarEl.style.top = topBarH + 'px';
+      const stickyBarH = stickyBarEl.offsetHeight;
+      // Push filterbar below the fixed sticky bar
+      if (filtersEl) filtersEl.style.marginTop = stickyBarH + 'px';
+      // Recalculate main content area height accounting for all header rows
+      const filterBarH = filtersEl  ? filtersEl.offsetHeight  : 0;
+      const workflowH  = workflowEl ? workflowEl.offsetHeight : 0;
+      const totalOffset = topBarH + stickyBarH + filterBarH + workflowH;
+      if (mainEl)  mainEl.style.minHeight  = 'calc(100vh - ' + totalOffset + 'px)';
+      if (queueEl) queueEl.style.maxHeight = 'calc(100vh - ' + totalOffset + 'px)';
+      if (cardEl)  cardEl.style.maxHeight  = 'calc(100vh - ' + totalOffset + 'px)';
     }
 
     function render() {
@@ -1160,6 +1729,9 @@
       renderCounts(items);
       renderQueue(items);
       renderCard(items[activeIndex], items);
+      updateStickyBar(items[activeIndex]);
+      renderWorkflowRibbon(items[activeIndex]);
+      requestAnimationFrame(adjustLayout);
     }
 
     async function updateStage(row, stage, noteType, noteText, operatorStatus = "", lastAction = "") {
@@ -1180,6 +1752,42 @@
       await load();
     }
 
+    async function confirmStageOverride(row) {
+      if (!row || !pendingStageOverride || pendingStageOverride === currentStage(row)) return;
+      await applyManualStageOverride(row, pendingStageOverride);
+      pendingStageOverride = "";
+    }
+
+    async function confirmWorkflowStageOverride(row) {
+      if (!row || !pendingWorkflowStageOverride || pendingWorkflowStageOverride === currentStage(row)) return;
+      await applyManualStageOverride(row, pendingWorkflowStageOverride);
+      pendingWorkflowStageOverride = "";
+    }
+
+    async function applyManualStageOverride(row, nextStage) {
+      let result;
+      try {
+        result = await api("/api/set-stage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notice_id: row.notice_id, stage: nextStage })
+        });
+      } catch (error) {
+        statusMessage = error.message || "Stage override failed.";
+        pendingStageOverride = "";
+        pendingWorkflowStageOverride = "";
+        render();
+        return;
+      }
+      row.macro_stage = result.stage;
+      row.last_operator_action = "manual_stage_override";
+      pendingStageOverride = "";
+      pendingWorkflowStageOverride = "";
+      statusMessage = `Moved to ${result.stage}`;
+      renderFilters();
+      render();
+    }
+
     async function saveNote(row, type, text) {
       await api("/api/note", {
         method: "POST",
@@ -1192,14 +1800,32 @@
 
     async function runAction(row, action) {
       statusMessage = action === "run_ai_review" ? "AI Review running — this may take a moment." : `Running ${action}...`;
+      clearActionResult();
       render();
-      const result = await api(`/api/action/${action}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notice_id: row.notice_id })
-      });
-      statusMessage = result.message || result.status || "Action complete.";
-      await load();
+      try {
+        const result = await api(`/api/action/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notice_id: row.notice_id })
+        });
+        statusMessage = result.message || result.status || "Action complete.";
+        const cardUpdated = applyCardData(row, result);
+        setActionResult({
+          kind: result.status === "error" ? "error" : "success",
+          message: result.error || result.message || result.status || "Action complete.",
+          fields: result.fields_filled || [],
+          cardUpdated
+        });
+        renderCard(row, filteredItems());
+      } catch (error) {
+        statusMessage = error.message || "Action failed.";
+        setActionResult({
+          kind: "error",
+          message: error.message || "Action failed.",
+          fields: [],
+          cardUpdated: false
+        });
+      }
     }
 
     async function handleButton(row, label) {
@@ -1212,10 +1838,26 @@
         const note = prompt("Decision note (optional):") || "";
         return updateStage(row, "Intake", "general_note", note, "", "Moved to Intake.");
       }
+      if (label === "Open AI Workspace") {
+        openAIWorkspace(row);
+        return;
+      }
+      if (label === "Move Forward") {
+        if (activeFilter === "Active") {
+          const items = filteredItems();
+          if (activeIndex < items.length - 1) activeIndex++;
+        }
+        return updateStage(row, "Development", "general_note", "Operator marked Move Forward during batch triage", "move_forward", "Moved Forward during batch triage.");
+      }
       if (label === "Manual Review") {
         const note = prompt("What needs checking?");
         if (note === null) return;
-        return updateStage(row, "Manual Review", "risk_note", note, "", "Moved to Manual Review.");
+        if (activeFilter === "Active") {
+          const items = filteredItems();
+          if (activeIndex < items.length - 1) activeIndex++;
+        }
+        const noteText = note || "Operator flagged for manual review during batch triage";
+        return updateStage(row, "Manual Review", "risk_note", noteText, "manual_review", "Moved to Manual Review.");
       }
       if (label === "PASS") {
         const note = prompt("Why are you passing?");
@@ -1303,12 +1945,29 @@
       document.querySelectorAll("[data-action-label]").forEach(btn => {
         btn.onclick = () => handleButton(row, btn.dataset.actionLabel);
       });
+      document.querySelectorAll("[data-stage-override]").forEach(stageEl => {
+        stageEl.onclick = () => {
+          const targetStage = stageEl.dataset.stageOverride;
+          if (!targetStage || targetStage === currentStage(row)) return;
+          pendingStageOverride = targetStage;
+          renderCard(row, items);
+          updateStickyBar(row);
+        };
+      });
+      const stageCancel = document.getElementById("stageCancelBtn");
+      if (stageCancel) stageCancel.onclick = () => {
+        pendingStageOverride = "";
+        renderCard(row, items);
+        updateStickyBar(row);
+      };
+      const stageConfirm = document.getElementById("stageConfirmBtn");
+      if (stageConfirm) stageConfirm.onclick = () => confirmStageOverride(row);
       const fetchButton = document.getElementById("fetchSynopsisBtn");
       if (fetchButton) fetchButton.onclick = () => fetchSynopsis(row);
       const prev = document.getElementById("prevBtn");
       const next = document.getElementById("nextBtn");
-      if (prev) prev.onclick = () => { activeIndex = Math.max(0, activeIndex - 1); render(); };
-      if (next) next.onclick = () => { activeIndex = Math.min(items.length - 1, activeIndex + 1); render(); };
+      if (prev) prev.onclick = () => { clearActionResult(); pendingStageOverride = ""; pendingWorkflowStageOverride = ""; activeIndex = Math.max(0, activeIndex - 1); render(); };
+      if (next) next.onclick = () => { clearActionResult(); pendingStageOverride = ""; pendingWorkflowStageOverride = ""; activeIndex = Math.min(items.length - 1, activeIndex + 1); render(); };
       const save = document.getElementById("saveNote");
       if (save) save.onclick = () => {
         const type = document.getElementById("noteType").value;
@@ -1336,12 +1995,18 @@
     document.getElementById("search").addEventListener("input", event => {
       searchTerm = event.target.value;
       activeIndex = 0;
+      clearActionResult();
+      pendingStageOverride = "";
+      pendingWorkflowStageOverride = "";
       render();
     });
     document.getElementById("resetSearch").onclick = () => {
       searchTerm = "";
       document.getElementById("search").value = "";
       activeIndex = 0;
+      clearActionResult();
+      pendingStageOverride = "";
+      pendingWorkflowStageOverride = "";
       render();
     };
 
@@ -1358,9 +2023,15 @@
       const row = items[activeIndex];
       if (!row) return;
       if (event.key.toLowerCase() === "j") {
+        clearActionResult();
+        pendingStageOverride = "";
+        pendingWorkflowStageOverride = "";
         activeIndex = Math.min(items.length - 1, activeIndex + 1);
         render();
       } else if (event.key.toLowerCase() === "k") {
+        clearActionResult();
+        pendingStageOverride = "";
+        pendingWorkflowStageOverride = "";
         activeIndex = Math.max(0, activeIndex - 1);
         render();
       } else if (event.key.toLowerCase() === "n") {
@@ -1377,8 +2048,557 @@
       }
     });
 
+    // Position sticky bar and adjust layout before data loads, then again after render
+    requestAnimationFrame(adjustLayout);
+    window.addEventListener('resize', adjustLayout);
+
     load().catch(error => {
       document.getElementById("card").innerHTML = `<div class="disq HARD">Dashboard failed: ${h(error.message)}</div>`;
+    });
+  </script>
+
+  <!-- AI Workspace Overlay -->
+  <div id="aiWorkspaceOverlay">
+    <div id="aiWorkspacePanel">
+      <div id="aiWsHeader">
+        <div>
+          <span class="ws-title">AI WORKSPACE</span>
+          <span class="ws-notice" id="aiWsHeaderNotice">—</span>
+        </div>
+        <button id="aiWsClose">✕ Close</button>
+      </div>
+      <div id="aiWsBody">
+        <div id="aiWsLeft">
+          <div id="aiWsLeftLoading">Loading context...</div>
+        </div>
+        <div id="aiWsRight">
+          <div id="aiWsConvo"></div>
+          <div id="aiWsInputRow">
+            <textarea id="aiWsInput" placeholder="Ask a question or request a draft..."></textarea>
+            <button id="aiWsSend">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Draft Read Modal -->
+  <div id="draftReadModal">
+    <div id="draftReadModalInner">
+      <h3 id="draftReadModalTitle">Saved Draft</h3>
+      <div id="draftReadModalBody"></div>
+      <button id="draftReadModalClose">Close</button>
+    </div>
+  </div>
+
+  <!-- Workspace Browser -->
+  <div id="workspaceBrowserOverlay">
+    <div id="workspaceBrowserPanel">
+      <div id="workspaceBrowserHeader">
+        <h2>WORKSPACE SESSIONS</h2>
+        <button id="workspaceBrowserClose">✕ Close</button>
+      </div>
+      <div id="workspaceBrowserList"></div>
+    </div>
+  </div>
+
+  <script>
+    // ── AI WORKSPACE ──────────────────────────────────────────────────────
+
+    let wsNoticeId = null;
+    let wsLoading = false;
+
+    const QUICK_ACTIONS = [
+      {
+        label: "Draft Buyer Email",
+        prompt: "Draft a professional email to the buyer. Based on the opportunity requirements and next steps, identify the most important question to ask and write a ready-to-send email.",
+        draft_type: "buyer_email"
+      },
+      {
+        label: "Draft Vendor Quote Request",
+        prompt: "Create a vendor quote request I can send to subcontractors for this work. Include the scope of work, place of performance, due date for quotes, and exactly what information I need from them to price this accurately.",
+        draft_type: "vendor_quote_request"
+      },
+      {
+        label: "Compliance Checklist",
+        prompt: "Create a compliance checklist of everything I need to submit for this opportunity. Format it as a numbered list I can check off.",
+        draft_type: "compliance_checklist"
+      },
+      {
+        label: "Proposal Outline",
+        prompt: "Create a proposal outline for this opportunity based on the requirements and submission instructions.",
+        draft_type: "proposal_outline"
+      },
+      {
+        label: "Source-Sought Response",
+        prompt: "Draft a source-sought response for this notice if appropriate. If this is not a source-sought/RFI notice, tell me whether a source-sought-style response is appropriate or whether I need a quote/proposal instead.",
+        draft_type: "source_sought_response"
+      },
+      {
+        label: "Summarize Requirements",
+        prompt: "Summarize all requirements for this opportunity in plain English in under 200 words. Focus on what I actually need to do and provide.",
+        draft_type: null
+      },
+      {
+        label: "Explain Submission Method",
+        prompt: "Explain exactly how and where to submit my response for this opportunity. Include the deadline, format, and any specific instructions.",
+        draft_type: null
+      },
+      {
+        label: "Find Red Flags",
+        prompt: "What are the biggest risks and red flags I should be aware of before committing to this opportunity? Be direct and specific.",
+        draft_type: null
+      }
+    ];
+
+    function wsSetLoading(on) {
+      wsLoading = on;
+      const send = document.getElementById("aiWsSend");
+      const input = document.getElementById("aiWsInput");
+      if (send) send.disabled = on;
+      if (input) input.disabled = on;
+      document.querySelectorAll(".ws-qa-btn").forEach(b => b.disabled = on);
+    }
+
+    function wsScrollBottom() {
+      const convo = document.getElementById("aiWsConvo");
+      if (convo) requestAnimationFrame(() => { convo.scrollTop = convo.scrollHeight; });
+    }
+
+    function wsAppendMessage(role, text) {
+      const convo = document.getElementById("aiWsConvo");
+      if (!convo) return null;
+      const div = document.createElement("div");
+      div.className = role === "user" ? "ws-msg-user" : role === "error" ? "ws-msg-error" : "ws-msg-ai";
+      div.textContent = text;
+      convo.appendChild(div);
+      wsScrollBottom();
+      return div;
+    }
+
+    function wsFormatDate(value) {
+      if (!value) return "not available";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const hh = String(date.getHours()).padStart(2, "0");
+      const mm = String(date.getMinutes()).padStart(2, "0");
+      return `${months[date.getMonth()]} ${date.getDate()} ${hh}:${mm}`;
+    }
+
+    function wsAppendSessionSummary(noticeId, messageCount, lastUpdated) {
+      const convo = document.getElementById("aiWsConvo");
+      if (!convo) return;
+      const div = document.createElement("div");
+      div.className = "ws-session-summary";
+      div.textContent = [
+        "── PREVIOUS SESSION ──────────────────────────────",
+        `${noticeId} · ${messageCount} messages · Last: ${wsFormatDate(lastUpdated)}`,
+        "──────────────────────────────────────────────────"
+      ].join("\n");
+      convo.appendChild(div);
+    }
+
+    function wsAppendContinuationPrompt() {
+      const convo = document.getElementById("aiWsConvo");
+      if (!convo) return;
+      const div = document.createElement("div");
+      div.className = "ws-continuation";
+      div.textContent = "↓ Continuing previous session — type a message or use a Quick Action";
+      convo.appendChild(div);
+      wsScrollBottom();
+    }
+
+    function wsRenderHistory(historyResponse) {
+      const history = Array.isArray(historyResponse.history) ? historyResponse.history : [];
+      if (!history.length) return false;
+      wsAppendSessionSummary(
+        historyResponse.notice_id || wsNoticeId,
+        historyResponse.message_count || history.length,
+        historyResponse.last_updated || ""
+      );
+      for (const message of history) {
+        const role = message.role === "user" ? "user" : "ai";
+        const msgDiv = wsAppendMessage(role, message.content || "");
+        if (role === "ai") wsAddSaveBar(msgDiv, null);
+      }
+      wsAppendContinuationPrompt();
+      wsScrollBottom();
+      return true;
+    }
+
+    function wsAddSaveBar(msgDiv, suggestedDraftType) {
+      if (!msgDiv) return;
+      const bar = document.createElement("div");
+      bar.className = "ws-save-bar";
+      const btn = document.createElement("button");
+      btn.className = "ws-save-btn";
+      btn.textContent = "Save Draft";
+      const confirm = document.createElement("span");
+      confirm.className = "ws-save-confirm";
+      bar.appendChild(btn);
+      bar.appendChild(confirm);
+      msgDiv.after(bar);
+
+      btn.onclick = async () => {
+        const types = Object.keys({
+          buyer_email: 1, vendor_quote_request: 1, compliance_checklist: 1,
+          proposal_outline: 1, source_sought_response: 1, general_notes: 1
+        });
+        const choice = prompt(
+          "Save as draft type:\n" + types.map((t, i) => `${i + 1}. ${t}`).join("\n") +
+          (suggestedDraftType ? `\n\nSuggested: ${suggestedDraftType}` : "") +
+          "\n\nType the draft type name:",
+          suggestedDraftType || "general_notes"
+        );
+        if (!choice) return;
+        const draftType = choice.trim();
+        try {
+          const res = await api("/api/workspace-save-draft", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notice_id: wsNoticeId, draft_type: draftType, content: msgDiv.textContent })
+          });
+          if (res.status === "ok") {
+            confirm.textContent = `✓ Saved to ${res.path}`;
+            wsRefreshDrafts();
+          } else {
+            confirm.textContent = `⚠ ${res.message || "Save failed"}`;
+          }
+        } catch (err) {
+          confirm.textContent = `⚠ Save failed`;
+        }
+      };
+    }
+
+    function wsShowThinking() {
+      const convo = document.getElementById("aiWsConvo");
+      if (!convo) return null;
+      const div = document.createElement("div");
+      div.className = "ws-msg-thinking";
+      div.textContent = "⟳ Thinking...";
+      convo.appendChild(div);
+      wsScrollBottom();
+      return div;
+    }
+
+    async function wsSendMessage(message, suggestedDraftType) {
+      if (wsLoading || !message.trim() || !wsNoticeId) return;
+      wsAppendMessage("user", message);
+      const thinking = wsShowThinking();
+      wsSetLoading(true);
+      try {
+        const res = await api("/api/workspace-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notice_id: wsNoticeId, message })
+        });
+        if (thinking) thinking.remove();
+        if (res.status === "ok") {
+          const msgDiv = wsAppendMessage("ai", res.response);
+          wsAddSaveBar(msgDiv, suggestedDraftType || null);
+          await refreshWorkspaceSessions(true);
+        } else {
+          wsAppendMessage("error", `⚠ AI response failed — ${res.message || "unknown error"}`);
+        }
+      } catch (err) {
+        if (thinking) thinking.remove();
+        wsAppendMessage("error", `⚠ AI response failed — ${err.message}`);
+      } finally {
+        wsSetLoading(false);
+      }
+    }
+
+    async function wsRefreshDrafts() {
+      if (!wsNoticeId) return;
+      try {
+        const ctx = await api(`/api/workspace-context/${encodeURIComponent(wsNoticeId)}`);
+        const saved = ctx.saved_drafts || [];
+        const container = document.getElementById("aiWsDraftsList");
+        if (!container) return;
+        if (!saved.length) {
+          container.innerHTML = `<div style="color:#555;font:11px 'Courier New',monospace">No saved drafts</div>`;
+          return;
+        }
+        container.innerHTML = "";
+        for (const fname of saved) {
+          const draftType = Object.entries({
+            buyer_email_draft: "buyer_email",
+            vendor_quote_request: "vendor_quote_request",
+            compliance_checklist: "compliance_checklist",
+            proposal_outline: "proposal_outline",
+            source_sought_response: "source_sought_response",
+            workspace_notes: "general_notes"
+          }).find(([k]) => fname.startsWith(k))?.[1] || "general_notes";
+          const btn = document.createElement("button");
+          btn.className = "ws-draft-btn";
+          btn.textContent = fname;
+          btn.onclick = () => wsOpenDraftModal(draftType, fname);
+          container.appendChild(btn);
+        }
+      } catch {}
+    }
+
+    async function wsOpenDraftModal(draftType, fname) {
+      const modal = document.getElementById("draftReadModal");
+      const title = document.getElementById("draftReadModalTitle");
+      const body = document.getElementById("draftReadModalBody");
+      if (!modal) return;
+      title.textContent = fname || draftType;
+      body.textContent = "Loading...";
+      modal.classList.add("open");
+      try {
+        const res = await api(`/api/workspace-draft/${encodeURIComponent(wsNoticeId)}/${encodeURIComponent(draftType)}`);
+        if (res.status === "ok") {
+          body.textContent = res.content;
+        } else {
+          body.textContent = `Not found: ${res.message || ""}`;
+        }
+      } catch (err) {
+        body.textContent = `Error loading draft: ${err.message}`;
+      }
+    }
+
+    function wsRenderLeft(ctx) {
+      const left = document.getElementById("aiWsLeft");
+      if (!left) return;
+
+      const due = ctx.due_date || "";
+      let daysLabel = "";
+      if (due) {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const dueDate = new Date(due + "T00:00:00");
+        const days = Math.ceil((dueDate - today) / 86400000);
+        daysLabel = days < 0 ? ` (past due)` : ` (${days}d)`;
+      }
+
+      const checks = [
+        { label: "Synopsis",            has: !!(ctx.synopsis && ctx.synopsis.length > 20) },
+        { label: "AI Review",           has: !!ctx.ai_summary },
+        { label: "Decision Report",     has: ctx.reports_available?.decision_report },
+        { label: "Compliance Matrix",   has: ctx.reports_available?.compliance_matrix },
+        { label: "Downloaded Docs",     has: ctx.documents_available?.length > 0 },
+        { label: "Document Extracts",   has: ctx.document_extracts_available },
+        { label: "Operator Notes",      has: ctx.operator_notes?.length > 0 },
+        { label: "Saved Drafts",        has: ctx.saved_drafts?.length > 0 },
+      ];
+
+      const savedDrafts = ctx.saved_drafts || [];
+      const draftItems = savedDrafts.map(fname => {
+        const draftType = Object.entries({
+          buyer_email_draft: "buyer_email",
+          vendor_quote_request: "vendor_quote_request",
+          compliance_checklist: "compliance_checklist",
+          proposal_outline: "proposal_outline",
+          source_sought_response: "source_sought_response",
+          workspace_notes: "general_notes"
+        }).find(([k]) => fname.startsWith(k))?.[1] || "general_notes";
+        return `<button class="ws-draft-btn" data-draft-type="${h(draftType)}" data-draft-fname="${h(fname)}">${h(fname)}</button>`;
+      }).join("") || `<div style="color:#555;font:11px 'Courier New',monospace">No saved drafts</div>`;
+
+      left.innerHTML = `
+        <span class="ws-section-label">Context</span>
+        <ul class="ws-check">
+          ${checks.map(c => `<li class="${c.has ? "has" : "missing"}">${c.has ? "✓" : "✗"} ${h(c.label)}</li>`).join("")}
+        </ul>
+
+        <span class="ws-section-label">Metadata</span>
+        <div class="ws-meta-row">Due: <span>${h(due)}${h(daysLabel)}</span></div>
+        <div class="ws-meta-row">Buyer: <span>${h(ctx.buyer?.name || "—")}</span></div>
+        <div class="ws-meta-row">Email: <span>${h(ctx.buyer?.email || "—")}</span></div>
+        <div class="ws-meta-row">Phone: <span>${h(ctx.buyer?.phone || "—")}</span></div>
+        <div class="ws-meta-row">Set-aside: <span>${h(ctx.set_aside || "—")}</span></div>
+        <div class="ws-meta-row">Location: <span>${h(ctx.place_of_performance || "—")}</span></div>
+        <div class="ws-meta-row">Stage: <span>${h(ctx.macro_stage || "—")}</span></div>
+
+        <span class="ws-section-label">Quick Actions</span>
+        ${QUICK_ACTIONS.map((qa, i) =>
+          `<button class="ws-qa-btn" data-qa-index="${i}">${h(qa.label)}</button>`
+        ).join("")}
+
+        <span class="ws-section-label">Saved Drafts</span>
+        <div id="aiWsDraftsList">${draftItems}</div>
+      `;
+
+      left.querySelectorAll(".ws-qa-btn").forEach(btn => {
+        const idx = Number(btn.dataset.qaIndex);
+        btn.onclick = () => {
+          if (wsLoading) return;
+          const qa = QUICK_ACTIONS[idx];
+          const input = document.getElementById("aiWsInput");
+          if (input) input.value = "";
+          wsSendMessage(qa.prompt, qa.draft_type);
+        };
+      });
+
+      left.querySelectorAll(".ws-draft-btn").forEach(btn => {
+        btn.onclick = () => wsOpenDraftModal(btn.dataset.draftType, btn.dataset.draftFname);
+      });
+    }
+
+    async function openAIWorkspace(row) {
+      wsNoticeId = row.notice_id || "";
+      if (!wsNoticeId) return;
+
+      const overlay = document.getElementById("aiWorkspaceOverlay");
+      const convo = document.getElementById("aiWsConvo");
+      const left = document.getElementById("aiWsLeft");
+      const header = document.getElementById("aiWsHeaderNotice");
+
+      overlay.classList.add("open");
+      if (header) header.textContent = `— ${row.title || wsNoticeId} [${wsNoticeId}]`;
+      if (convo) convo.innerHTML = "";
+      if (left) left.innerHTML = `<div id="aiWsLeftLoading">Loading context...</div>`;
+
+      const input = document.getElementById("aiWsInput");
+      if (input) input.value = "";
+
+      try {
+        const ctx = await api(`/api/workspace-context/${encodeURIComponent(wsNoticeId)}`);
+        if (ctx.error) {
+          if (left) left.innerHTML = `<div style="color:#ff6666;font:11px 'Courier New',monospace">⚠ Could not load opportunity context</div>`;
+        } else {
+          wsRenderLeft(ctx);
+        }
+
+        let renderedHistory = false;
+        if (ctx.conversation_history_available) {
+          const history = await api(`/api/workspace-history/${encodeURIComponent(wsNoticeId)}`);
+          renderedHistory = history.status === "ok" && wsRenderHistory(history);
+        }
+        if (!renderedHistory) {
+          await wsSendMessage(
+            "I just opened the AI Workspace for this opportunity. Based on everything you know about it, what should I focus on first and what are the most important next steps?"
+          );
+        }
+      } catch (err) {
+        if (left) left.innerHTML = `<div style="color:#ff6666;font:11px 'Courier New',monospace">⚠ Could not load opportunity context: ${h(err.message)}</div>`;
+      }
+    }
+
+    function closeAIWorkspace() {
+      const overlay = document.getElementById("aiWorkspaceOverlay");
+      if (overlay) overlay.classList.remove("open");
+      wsNoticeId = null;
+    }
+
+    function truncateTitle(value, limit = 60) {
+      const text = String(value || "").trim();
+      return text.length > limit ? text.slice(0, limit - 1) + "…" : text;
+    }
+
+    function rowForNoticeId(noticeId, fallbackTitle = "") {
+      return opportunities.find(row => row.notice_id === noticeId) || {
+        notice_id: noticeId,
+        title: fallbackTitle || noticeId
+      };
+    }
+
+    function renderWorkspaceBrowser() {
+      const list = document.getElementById("workspaceBrowserList");
+      if (!list) return;
+      const sessions = workspaceSessions || [];
+      if (!sessions.length) {
+        list.innerHTML = `<div class="muted">No workspace sessions yet.<br>Open the AI Workspace on any Move Forward or Development card to start one.</div>`;
+        return;
+      }
+      list.innerHTML = sessions.map(session => {
+        const item = typeof session === "string" ? {
+          notice_id: session,
+          title: session,
+          message_count: 0,
+          draft_count: 0,
+          last_updated: ""
+        } : session;
+        return `
+          <div class="workspace-session-row">
+            <div>
+              <div class="workspace-session-title">${h(item.notice_id)} &nbsp; ${h(truncateTitle(item.title || item.notice_id))}</div>
+              <div class="workspace-session-meta">${h(item.message_count || 0)} messages · Last active: ${h(wsFormatDate(item.last_updated))} · Drafts: ${h(item.draft_count || 0)}</div>
+            </div>
+            <button class="workspace-open-btn" data-notice-id="${h(item.notice_id)}" data-title="${h(item.title || item.notice_id)}">Open Workspace</button>
+          </div>`;
+      }).join("");
+      list.querySelectorAll(".workspace-open-btn").forEach(btn => {
+        btn.onclick = () => {
+          closeWorkspaceBrowser();
+          openAIWorkspace(rowForNoticeId(btn.dataset.noticeId, btn.dataset.title));
+        };
+      });
+    }
+
+    async function openWorkspaceBrowser() {
+      await refreshWorkspaceSessions(true);
+      renderWorkspaceBrowser();
+      const overlay = document.getElementById("workspaceBrowserOverlay");
+      if (overlay) overlay.classList.add("open");
+    }
+
+    function closeWorkspaceBrowser() {
+      const overlay = document.getElementById("workspaceBrowserOverlay");
+      if (overlay) overlay.classList.remove("open");
+    }
+
+    function initWorkspaceEvents() {
+      const close = document.getElementById("aiWsClose");
+      if (close) close.onclick = closeAIWorkspace;
+
+      const openBrowser = document.getElementById("openWorkspacesBtn");
+      if (openBrowser) openBrowser.onclick = openWorkspaceBrowser;
+
+      const closeBrowser = document.getElementById("workspaceBrowserClose");
+      if (closeBrowser) closeBrowser.onclick = closeWorkspaceBrowser;
+
+      const send = document.getElementById("aiWsSend");
+      const input = document.getElementById("aiWsInput");
+      if (send && input) {
+        send.onclick = () => {
+          const msg = input.value.trim();
+          if (!msg) return;
+          input.value = "";
+          wsSendMessage(msg);
+        };
+        input.addEventListener("keydown", event => {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            send.click();
+          }
+        });
+      }
+
+      const overlay = document.getElementById("aiWorkspaceOverlay");
+      if (overlay) {
+        overlay.addEventListener("keydown", event => {
+          if (event.key === "Escape") closeAIWorkspace();
+        });
+      }
+
+      const draftClose = document.getElementById("draftReadModalClose");
+      if (draftClose) draftClose.onclick = () => {
+        document.getElementById("draftReadModal").classList.remove("open");
+      };
+    }
+
+    document.addEventListener("DOMContentLoaded", initWorkspaceEvents);
+
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        const overlay = document.getElementById("aiWorkspaceOverlay");
+        if (overlay && overlay.classList.contains("open")) {
+          closeAIWorkspace();
+          event.stopPropagation();
+        }
+        const draftModal = document.getElementById("draftReadModal");
+        if (draftModal && draftModal.classList.contains("open")) {
+          draftModal.classList.remove("open");
+          event.stopPropagation();
+        }
+        const workspaceBrowser = document.getElementById("workspaceBrowserOverlay");
+        if (workspaceBrowser && workspaceBrowser.classList.contains("open")) {
+          closeWorkspaceBrowser();
+          event.stopPropagation();
+        }
+      }
     });
   </script>
 </body>

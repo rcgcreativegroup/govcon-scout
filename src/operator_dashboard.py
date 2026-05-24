@@ -348,6 +348,16 @@ def backup_state_file_for_synopsis():
     return str(backup_path.relative_to(BASE_DIR))
 
 
+def backup_state_file_for_stage_override():
+    if not OPPORTUNITY_STATE_PATH.exists():
+        return ""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = BACKUP_DIR / f"opportunity_state_before_stage_override_{stamp}.csv"
+    shutil.copy2(OPPORTUNITY_STATE_PATH, backup_path)
+    return str(backup_path.relative_to(BASE_DIR))
+
+
 def run_local_state_builder_if_needed():
     if OPPORTUNITY_STATE_PATH.exists():
         return
@@ -760,7 +770,54 @@ def ensure_state_schema():
 
 
 def allowed_stages():
-    return read_json(STAGE_ENUMS_PATH, {}).get("stages", [])
+    fallback = [
+        "Triage",
+        "Intake",
+        "Manual Review",
+        "AI Review",
+        "Development",
+        "Ready to Submit",
+        "Execution",
+        "Archive",
+        "Done",
+    ]
+    return read_json(STAGE_ENUMS_PATH, {}).get("stages", fallback) or fallback
+
+
+def set_stage_override(notice_id, stage):
+    notice_id = safe_text(notice_id)
+    stage = safe_text(stage)
+    if not notice_id:
+        return {"status": "error", "message": "notice_id is required"}
+    if stage not in allowed_stages():
+        return {"status": "error", "message": "Invalid stage"}
+
+    fieldnames, rows = read_state()
+    found = False
+    for row in rows:
+        if safe_text(row.get("notice_id")) == notice_id:
+            row["macro_stage"] = stage
+            row["last_operator_action"] = "manual_stage_override"
+            found = True
+            break
+    if not found:
+        return {"status": "error", "message": "notice_id not found"}
+
+    backup_path = backup_state_file_for_stage_override()
+    tmp_path = OPPORTUNITY_STATE_PATH.with_suffix(".csv.tmp")
+    try:
+        write_csv_preserve(tmp_path, fieldnames, rows)
+        tmp_path.replace(OPPORTUNITY_STATE_PATH)
+    except OSError as error:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        return {"status": "error", "message": f"CSV write failed: {error}"}
+    return {
+        "status": "ok",
+        "notice_id": notice_id,
+        "stage": stage,
+        "backup_path": backup_path,
+    }
 
 
 def allowed_note_types():
@@ -1047,6 +1104,20 @@ def local_documents_exist(notice_id):
     return folder_has_files(DOWNLOADS_DIR / notice_id) or folder_has_files(MANUAL_UPLOADS_DIR / notice_id)
 
 
+def local_reports_exist(notice_id):
+    report_paths = [
+        REPORTS_DIR / "analysis_packets" / f"{notice_id}.md",
+        REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_bid_no_bid.md",
+        REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_decision_report.md",
+        REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_compliance_matrix.md",
+        REPORTS_DIR / "sources_sought" / f"{notice_id}_sources_sought_plan.md",
+        REPORTS_DIR / "manual_review" / f"{notice_id}_manual_review.md",
+        REPORTS_DIR / "pricing" / f"{notice_id}_bid_price_sanity.md",
+        REPORTS_DIR / "pricing" / f"{notice_id}_pricing_schedule.md",
+    ]
+    return any(path.exists() for path in report_paths)
+
+
 def supported_documents(folder):
     folder = Path(folder)
     if not folder.exists():
@@ -1120,6 +1191,103 @@ def run_backend_commands(notice_id, commands):
     return True, summaries
 
 
+def parse_backfill_fields(stdout):
+    fields = []
+    in_fields = False
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if stripped == "Fields filled:":
+            in_fields = True
+            continue
+        if in_fields:
+            if not stripped.startswith("- "):
+                break
+            field = stripped[2:].split(":", 1)[0].strip()
+            if field and field != "none":
+                fields.append(field)
+    return fields
+
+
+def card_data_for_notice(notice_id):
+    row = row_for_notice(notice_id)
+    fields = [
+        "ai_summary",
+        "requirements",
+        "disqualifiers",
+        "document_status",
+        "next_data_step",
+        "recommended_next_action",
+    ]
+    return {field: safe_text(row.get(field)) for field in fields if safe_text(row.get(field))}
+
+
+def run_card_field_backfill(notice_id, stage, success_prefix):
+    if not local_documents_exist(notice_id) and not local_reports_exist(notice_id):
+        return {
+            "status": "skipped",
+            "message": f"{success_prefix} — no local documents or reports found for backfill",
+            "fields_filled": [],
+            "card_data": {},
+        }
+
+    command = [
+        sys.executable,
+        "src/backfill_opportunity_card_fields.py",
+        "--notice-id",
+        notice_id,
+        "--write",
+    ]
+    result = subprocess.run(
+        command,
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+    )
+    summary = {
+        "command": " ".join(command),
+        "return_code": result.returncode,
+        "stdout": short_output(result.stdout),
+        "stderr": short_output(result.stderr),
+    }
+    if result.returncode != 0:
+        error_text = short_output(result.stderr or result.stdout)
+        append_note(
+            notice_id,
+            "risk_note",
+            f"Card field backfill failed after dashboard action: {error_text}",
+            stage,
+            "dashboard_action",
+        )
+        return {
+            "status": "failed",
+            "message": f"{success_prefix} — card field backfill failed; see logs",
+            "fields_filled": [],
+            "card_data": {},
+            "backfill_error": error_text,
+            "summary": summary,
+        }
+    fields_filled = parse_backfill_fields(result.stdout)
+    if not fields_filled:
+        return {
+            "status": "no_fields",
+            "message": f"{success_prefix} — no new fields extracted from reports",
+            "fields_filled": [],
+            "card_data": {},
+            "summary": summary,
+        }
+    visible_fields = [
+        field for field in fields_filled
+        if field in {"ai_summary", "requirements", "disqualifiers", "document_status", "next_data_step", "artifact_backfill_source"}
+    ]
+    return {
+        "status": "updated",
+        "message": f"{success_prefix} — {len(visible_fields)} card fields updated",
+        "fields_filled": visible_fields,
+        "card_data": card_data_for_notice(notice_id),
+        "summary": summary,
+    }
+
+
 def refresh_row_after_artifacts(notice_id, stage):
     updates = {
         "macro_stage": stage,
@@ -1162,8 +1330,24 @@ def action_prepare_docs(notice_id):
     if ok:
         next_stage = "AI Review" if local_documents_exist(notice_id) else "Intake"
         refresh_row_after_artifacts(notice_id, next_stage)
+        backfill = run_card_field_backfill(notice_id, next_stage, "Documents prepared") if local_documents_exist(notice_id) or local_reports_exist(notice_id) else {
+            "status": "skipped",
+            "message": "Documents prepared.",
+            "fields_filled": [],
+            "card_data": {},
+        }
         append_note(notice_id, "general_note", "Prepare SAM Docs completed from dashboard.", next_stage, "dashboard_action")
-        return {"status": "ok", "message": "Prepare SAM Docs completed.", "commands": summaries}
+        message = backfill["message"] if backfill["status"] in {"updated", "no_fields", "failed"} else "Prepare SAM Docs completed."
+        return {
+            "status": "ok",
+            "message": message,
+            "commands": summaries,
+            "backfill": backfill,
+            "fields_filled": backfill.get("fields_filled", []),
+            "card_data": backfill.get("card_data", {}),
+            "backfill_error": backfill.get("backfill_error", ""),
+            "macro_stage": next_stage,
+        }
     append_note(notice_id, "risk_note", "Prepare SAM Docs failed; operator review required.", row.get("macro_stage", ""), "dashboard_action")
     return {"status": "warning", "message": "Prepare SAM Docs failed. No pass/failure was applied.", "commands": summaries}
 
@@ -1200,8 +1384,19 @@ def action_run_ai_review(notice_id):
     ok, summaries = run_backend_commands(notice_id, commands)
     if ok:
         refresh_row_after_artifacts(notice_id, "Development")
+        backfill = run_card_field_backfill(notice_id, "Development", "AI review complete")
         append_note(notice_id, "general_note", "AI review completed from dashboard; moved to Development.", "Development", "dashboard_action")
-        return {"status": "ok", "message": "AI review completed.", "commands": summaries, "extracted_zips": extracted_zips}
+        return {
+            "status": "ok",
+            "message": backfill["message"],
+            "commands": summaries,
+            "extracted_zips": extracted_zips,
+            "backfill": backfill,
+            "fields_filled": backfill.get("fields_filled", []),
+            "card_data": backfill.get("card_data", {}),
+            "backfill_error": backfill.get("backfill_error", ""),
+            "macro_stage": "Development",
+        }
     append_note(notice_id, "risk_note", "AI review failed; operator review required.", row.get("macro_stage", ""), "dashboard_action")
     return {"status": "error", "message": "AI review failed. Opportunity was not advanced.", "commands": summaries, "extracted_zips": extracted_zips}
 
@@ -1353,6 +1548,371 @@ def fetch_synopsis_from_sam(notice_id):
         return {"status": "error", "message": safe_text(error)}
 
 
+# ── AI WORKSPACE ─────────────────────────────────────────────────────────────
+
+WORKSPACE_DIR = REPORTS_DIR / "opportunity_workspaces"
+REPORT_CONTENT_LIMIT = 3000
+EXTRACT_CONTENT_LIMIT = 16000
+
+DRAFT_TYPE_TO_FILENAME = {
+    "buyer_email": "buyer_email_draft.md",
+    "vendor_quote_request": "vendor_quote_request.md",
+    "compliance_checklist": "compliance_checklist.md",
+    "proposal_outline": "proposal_outline.md",
+    "source_sought_response": "source_sought_response.md",
+    "general_notes": "workspace_notes.md",
+}
+
+
+def build_workspace_context(notice_id):
+    notice_id = sanitize_id(notice_id)
+    if notice_id == "unknown":
+        return None, "Invalid notice_id"
+
+    _fieldnames, rows = read_state()
+    row = {}
+    for r in rows:
+        if safe_text(r.get("notice_id")) == notice_id:
+            row = r
+            break
+    if not row:
+        return None, f"notice_id {notice_id!r} not found in opportunity_state.csv"
+
+    notes = notes_by_notice().get(notice_id, [])
+    operator_notes = [
+        {
+            "timestamp": safe_text(n.get("timestamp")),
+            "note_type": safe_text(n.get("note_type")),
+            "note_text": safe_text(n.get("note_text")),
+            "stage": safe_text(n.get("stage")),
+        }
+        for n in notes[:20]
+    ]
+
+    report_paths = {
+        "bid_no_bid": REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_bid_no_bid.md",
+        "decision_report": REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_decision_report.md",
+        "compliance_matrix": REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_compliance_matrix.md",
+        "sources_sought_plan": REPORTS_DIR / "sources_sought" / f"{notice_id}_sources_sought_plan.md",
+        "manual_review": REPORTS_DIR / "manual_review" / f"{notice_id}_manual_review.md",
+        "pricing_sanity": REPORTS_DIR / "pricing" / f"{notice_id}_bid_price_sanity.md",
+    }
+    reports_available = {k: v.exists() for k, v in report_paths.items()}
+    report_content = {}
+    for k, path in report_paths.items():
+        if path.exists():
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            report_content[k] = text[:REPORT_CONTENT_LIMIT] + ("\n...[truncated]" if len(text) > REPORT_CONTENT_LIMIT else "")
+        else:
+            report_content[k] = ""
+
+    docs = []
+    for folder in [DOWNLOADS_DIR / notice_id, MANUAL_UPLOADS_DIR / notice_id]:
+        if folder.exists():
+            docs.extend(sorted(f.name for f in folder.iterdir() if f.is_file()))
+
+    extract_dir = REPORTS_DIR / "document_extracts" / notice_id
+    extract_content = ""
+    if extract_dir.exists():
+        texts = []
+        total = 0
+        for f in sorted(extract_dir.iterdir()):
+            if f.is_file() and f.suffix.lower() in {".txt", ".md"}:
+                file_text = f.read_text(encoding="utf-8", errors="ignore")
+                header = f"\n\n--- {f.name} ---\n"
+                chunk = header + file_text
+                if total + len(chunk) > EXTRACT_CONTENT_LIMIT:
+                    remaining = EXTRACT_CONTENT_LIMIT - total - len(header)
+                    if remaining > 200:
+                        texts.append(header + file_text[:remaining] + "\n...[truncated]")
+                    break
+                texts.append(chunk)
+                total += len(chunk)
+        extract_content = "".join(texts).strip()
+
+    workspace_path = WORKSPACE_DIR / notice_id
+    saved_drafts = []
+    if workspace_path.exists():
+        saved_drafts = sorted(
+            f.name for f in workspace_path.iterdir()
+            if f.is_file() and f.name != "conversation_history.json"
+        )
+
+    conv_history_path = workspace_path / "conversation_history.json"
+
+    return {
+        "notice_id": notice_id,
+        "title": safe_text(row.get("title")),
+        "agency": safe_text(row.get("agency")),
+        "due_date": safe_text(row.get("due_date")),
+        "deadline_display": (safe_text(row.get("deadline_time", "")) + " " + safe_text(row.get("deadline_tz", ""))).strip(),
+        "set_aside": safe_text(row.get("set_aside")),
+        "place_of_performance": safe_text(row.get("place_of_performance")),
+        "source_url": safe_text(row.get("source_url") or row.get("ui_link")),
+        "macro_stage": safe_text(row.get("macro_stage")),
+        "operator_status": safe_text(row.get("operator_status")),
+        "synopsis": safe_text(row.get("synopsis") or row.get("description")),
+        "ai_summary": safe_text(row.get("ai_summary")),
+        "requirements": safe_text(row.get("requirements")),
+        "disqualifiers": safe_text(row.get("disqualifiers")),
+        "document_status": safe_text(row.get("document_status")),
+        "next_data_step": safe_text(row.get("next_data_step") or row.get("recommended_next_action")),
+        "buyer": {
+            "name": safe_text(row.get("buyer_name")),
+            "email": safe_text(row.get("buyer_email")),
+            "phone": safe_text(row.get("buyer_phone")),
+        },
+        "operator_notes": operator_notes,
+        "reports_available": reports_available,
+        "report_content": report_content,
+        "documents_available": docs,
+        "document_extracts_available": extract_dir.exists() and bool(extract_content),
+        "document_extract_content": extract_content,
+        "conversation_history_available": conv_history_path.exists(),
+        "saved_drafts": saved_drafts,
+        "context_assembled_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }, None
+
+
+def format_context_for_prompt(ctx):
+    lines = [
+        f"NOTICE ID: {ctx['notice_id']}",
+        f"TITLE: {ctx['title']}",
+        f"AGENCY: {ctx['agency']}",
+        f"DUE DATE: {ctx['due_date']} {ctx['deadline_display']}".strip(),
+        f"SET-ASIDE: {ctx['set_aside']}",
+        f"PLACE OF PERFORMANCE: {ctx['place_of_performance']}",
+        f"STAGE: {ctx['macro_stage']}",
+        f"OPERATOR STATUS: {ctx['operator_status']}",
+        f"SOURCE URL: {ctx['source_url']}",
+        "",
+        "BUYER:",
+        f"  Name: {ctx['buyer']['name']}",
+        f"  Email: {ctx['buyer']['email']}",
+        f"  Phone: {ctx['buyer']['phone']}",
+        "",
+    ]
+    if ctx.get("synopsis"):
+        lines += ["SYNOPSIS:", ctx["synopsis"][:2000], ""]
+    if ctx.get("ai_summary"):
+        lines += ["AI SUMMARY:", ctx["ai_summary"][:2000], ""]
+    if ctx.get("requirements"):
+        lines += ["REQUIREMENTS:", ctx["requirements"][:2000], ""]
+    if ctx.get("disqualifiers"):
+        lines += ["DISQUALIFIERS / RISKS:", ctx["disqualifiers"][:2000], ""]
+    if ctx.get("next_data_step"):
+        lines += ["NEXT DATA STEP:", ctx["next_data_step"], ""]
+    for key, label in [
+        ("bid_no_bid", "BID/NO-BID REVIEW"),
+        ("decision_report", "DECISION REPORT"),
+        ("compliance_matrix", "COMPLIANCE MATRIX"),
+        ("sources_sought_plan", "SOURCES SOUGHT PLAN"),
+        ("manual_review", "MANUAL REVIEW NOTES"),
+        ("pricing_sanity", "PRICING SANITY CHECK"),
+    ]:
+        if ctx["report_content"].get(key):
+            lines += [f"--- {label} ---", ctx["report_content"][key], ""]
+    if ctx["documents_available"]:
+        lines += ["DOWNLOADED DOCUMENTS:", "\n".join(f"  - {d}" for d in ctx["documents_available"]), ""]
+    if ctx.get("document_extract_content"):
+        lines += ["DOCUMENT EXTRACT CONTENT:", ctx["document_extract_content"], ""]
+    if ctx["operator_notes"]:
+        lines.append("OPERATOR NOTES:")
+        for note in ctx["operator_notes"][:10]:
+            lines.append(f"  [{note['timestamp']}] [{note['note_type']}] {note['note_text']}")
+        lines.append("")
+    if ctx["saved_drafts"]:
+        lines += ["SAVED DRAFTS:", "\n".join(f"  - {d}" for d in ctx["saved_drafts"]), ""]
+    return "\n".join(lines)
+
+
+def load_conversation_history(notice_id):
+    path = WORKSPACE_DIR / notice_id / "conversation_history.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except (json.JSONDecodeError, OSError):
+        pass
+    return []
+
+
+def workspace_history_payload(notice_id):
+    notice_id = sanitize_id(notice_id)
+    path = WORKSPACE_DIR / notice_id / "conversation_history.json"
+    if not path.exists():
+        return {
+            "status": "empty",
+            "notice_id": notice_id,
+            "history": [],
+            "message_count": 0,
+            "last_updated": "",
+        }
+    history = load_conversation_history(notice_id)
+    last_updated = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
+    return {
+        "status": "ok" if history else "empty",
+        "notice_id": notice_id,
+        "history": history,
+        "message_count": len(history),
+        "last_updated": last_updated,
+    }
+
+
+def workspace_sessions_payload():
+    titles = {}
+    _fieldnames, rows = read_state()
+    for row in rows:
+        notice_id = safe_text(row.get("notice_id"))
+        if notice_id:
+            titles[notice_id] = safe_text(row.get("title")) or notice_id
+
+    sessions = []
+    if WORKSPACE_DIR.exists():
+        for folder in sorted(WORKSPACE_DIR.iterdir()):
+            if not folder.is_dir():
+                continue
+            notice_id = sanitize_id(folder.name)
+            history_file = folder / "conversation_history.json"
+            if not history_file.exists():
+                continue
+            history = load_conversation_history(notice_id)
+            draft_count = sum(
+                1 for path in folder.iterdir()
+                if path.is_file() and path.name != "conversation_history.json"
+            )
+            sessions.append({
+                "notice_id": notice_id,
+                "title": titles.get(notice_id, notice_id),
+                "message_count": len(history),
+                "draft_count": draft_count,
+                "last_updated": datetime.fromtimestamp(history_file.stat().st_mtime).strftime("%Y-%m-%dT%H:%M:%S"),
+            })
+    sessions.sort(key=lambda item: item.get("last_updated") or "", reverse=True)
+    return {"status": "ok", "sessions": sessions}
+
+
+def save_conversation_history(notice_id, history):
+    ws_path = WORKSPACE_DIR / notice_id
+    ws_path.mkdir(parents=True, exist_ok=True)
+    (ws_path / "conversation_history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
+
+
+def workspace_chat(notice_id, message):
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {
+            "status": "error",
+            "message": "ANTHROPIC_API_KEY is not configured. Add it to your .env file.",
+            "notice_id": notice_id,
+        }
+
+    ctx, err = build_workspace_context(notice_id)
+    if err:
+        return {"status": "error", "message": err, "notice_id": notice_id}
+
+    context_text = format_context_for_prompt(ctx)
+    system_prompt = (
+        "You are a government contracting advisor for Robinson Creative Group / JPTR Enterprises LLC.\n"
+        "You are helping the operator work a specific opportunity that has already been moved into a focused execution queue.\n\n"
+        "COMPANY CONTEXT:\n"
+        "- Company: Robinson Creative Group / JPTR Enterprises LLC\n"
+        "- UEI: QJZTCE6MKBG5\n"
+        "- CAGE: 20AE1\n"
+        "- Set-aside eligibility: Total Small Business, Small Business\n"
+        "- Core lanes: Marketing, Advertising, Pest Control through subcontractors, Janitorial through subcontractors, "
+        "Security, Transportation, AI Services, Training, Video Production\n"
+        "- Approach: Prime where possible, subcontract for licensed trades and specialized labor\n"
+        "- Owner: Travis Robinson, Founder and Managing Member\n"
+        "- Email: travis@robinsoncreativegroup.com\n\n"
+        f"OPPORTUNITY CONTEXT:\n{context_text}\n\n"
+        "Your job:\n"
+        "- Explain what this opportunity requires.\n"
+        "- Identify the next action.\n"
+        "- Draft buyer emails, vendor quote requests, compliance checklists, proposal outlines, "
+        "source-sought responses, and submission materials.\n"
+        "- Flag risks, disqualifiers, licensing requirements, past performance issues, site visit requirements, "
+        "bonding, insurance, wage determination, and submission traps.\n"
+        "- Give direct, actionable advice.\n"
+        "- Do not give generic government contracting advice when the opportunity context provides specifics.\n"
+        "- If context is missing, say exactly what is missing and what the operator should fetch, upload, or verify next.\n"
+        "- When drafting sendable materials, make them ready to use with minimal editing.\n"
+        "- Reference the specific opportunity details, buyer name, due date, place of performance, "
+        "and submission instructions when available.\n"
+        "- Be concise. Lead with the most important information first."
+    )
+
+    history = load_conversation_history(notice_id)
+    try:
+        import anthropic as _anthropic
+        model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+        client = _anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=model,
+            max_tokens=2500,
+            system=system_prompt,
+            messages=history + [{"role": "user", "content": message}],
+        )
+        assistant_text = response.content[0].text
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": assistant_text})
+        save_conversation_history(notice_id, history)
+        return {
+            "status": "ok",
+            "response": assistant_text,
+            "notice_id": notice_id,
+            "history_count": len(history),
+        }
+    except Exception as exc:
+        print(f"[workspace-chat] Anthropic error for {notice_id}: {exc}")
+        msg = str(exc)
+        if "401" in msg or "authentication" in msg.lower() or "api_key" in msg.lower():
+            return {
+                "status": "error",
+                "message": "Anthropic API key invalid or expired. Check ANTHROPIC_API_KEY in .env",
+                "notice_id": notice_id,
+            }
+        model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+        if "model" in msg.lower() and ("not found" in msg.lower() or "invalid" in msg.lower()):
+            return {
+                "status": "error",
+                "message": f"Configured model '{model}' is not available. Check ANTHROPIC_MODEL in .env",
+                "notice_id": notice_id,
+            }
+        return {
+            "status": "error",
+            "message": f"AI response failed: {msg[:200]}",
+            "notice_id": notice_id,
+        }
+
+
+def workspace_save_draft_file(notice_id, draft_type, content):
+    if draft_type not in DRAFT_TYPE_TO_FILENAME:
+        return {"status": "error", "message": f"Unknown draft_type: {draft_type!r}"}
+    filename = DRAFT_TYPE_TO_FILENAME[draft_type]
+    ws_path = WORKSPACE_DIR / notice_id
+    ws_path.mkdir(parents=True, exist_ok=True)
+    file_path = ws_path / filename
+    file_path.write_text(content, encoding="utf-8")
+    return {"status": "ok", "path": str(file_path.relative_to(BASE_DIR)), "filename": filename}
+
+
+def workspace_read_draft_file(notice_id, draft_type):
+    if draft_type not in DRAFT_TYPE_TO_FILENAME:
+        return {"status": "error", "message": f"Unknown draft_type: {draft_type!r}"}
+    filename = DRAFT_TYPE_TO_FILENAME[draft_type]
+    file_path = WORKSPACE_DIR / notice_id / filename
+    if not file_path.exists():
+        return {"status": "not_found", "message": f"{filename} not found for {notice_id}"}
+    content = file_path.read_text(encoding="utf-8", errors="ignore")
+    return {"status": "ok", "content": content, "filename": filename, "notice_id": notice_id, "draft_type": draft_type}
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "GovConScoutDashboard/0.1"
 
@@ -1371,6 +1931,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "naics_lanes": read_json(NAICS_LANES_PATH, {}),
                 "business_rules": read_json(BUSINESS_RULES_PATH, {}),
             })
+        if parsed.path.startswith("/api/workspace-context/"):
+            notice_id = sanitize_id(unquote(parsed.path.rsplit("/", 1)[-1]))
+            ctx, err = build_workspace_context(notice_id)
+            if err:
+                return json_response(self, {"error": err}, 404)
+            return json_response(self, ctx)
+        if parsed.path == "/api/workspace-sessions":
+            return json_response(self, workspace_sessions_payload())
+        if parsed.path.startswith("/api/workspace-history/"):
+            notice_id = sanitize_id(unquote(parsed.path.rsplit("/", 1)[-1]))
+            return json_response(self, workspace_history_payload(notice_id))
+        if parsed.path.startswith("/api/workspace-draft/"):
+            parts = parsed.path.split("/")
+            if len(parts) >= 5:
+                notice_id = sanitize_id(unquote(parts[-2]))
+                draft_type = unquote(parts[-1])
+                return json_response(self, workspace_read_draft_file(notice_id, draft_type))
+            return json_response(self, {"error": "Invalid path"}, 400)
         if parsed.path == "/file":
             return self.serve_safe_file(parsed)
         return json_response(self, {"error": "Not found"}, 404)
@@ -1380,6 +1958,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/stage":
                 return self.handle_stage()
+            if parsed.path == "/api/set-stage":
+                return self.handle_set_stage()
             if parsed.path == "/api/note":
                 return self.handle_note()
             if parsed.path == "/api/fetch-synopsis":
@@ -1390,6 +1970,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/api/action/"):
                 action = parsed.path.rsplit("/", 1)[-1]
                 return self.handle_action(action)
+            if parsed.path == "/api/workspace-chat":
+                return self.handle_workspace_chat()
+            if parsed.path == "/api/workspace-save-draft":
+                return self.handle_workspace_save_draft()
             return json_response(self, {"error": "Not found"}, 404)
         except ValueError as error:
             return json_response(self, {"error": str(error)}, 400)
@@ -1436,6 +2020,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if note_text:
             append_note(notice_id, note_type, note_text, stage, "operator")
         return json_response(self, {"status": "ok", "notice_id": notice_id, "macro_stage": stage})
+
+    def handle_set_stage(self):
+        payload = self.read_json_body()
+        result = set_stage_override(payload.get("notice_id"), payload.get("stage"))
+        if result.get("status") != "ok":
+            return json_response(self, {"error": result.get("message", "Stage override failed")}, 400)
+        return json_response(self, result)
 
     def handle_note(self):
         payload = self.read_json_body()
@@ -1513,6 +2104,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if action == "draft_response":
             return json_response(self, action_draft_response(notice_id))
         return json_response(self, {"error": "Unknown action"}, 404)
+
+    def handle_workspace_chat(self):
+        payload = self.read_json_body()
+        notice_id = sanitize_id(safe_text(payload.get("notice_id")))
+        message = safe_text(payload.get("message"))
+        if not notice_id or notice_id == "unknown":
+            return json_response(self, {"status": "error", "message": "notice_id is required"}, 400)
+        if not message:
+            return json_response(self, {"status": "error", "message": "message is required"}, 400)
+        return json_response(self, workspace_chat(notice_id, message))
+
+    def handle_workspace_save_draft(self):
+        payload = self.read_json_body()
+        notice_id = sanitize_id(safe_text(payload.get("notice_id")))
+        draft_type = safe_text(payload.get("draft_type"))
+        content = safe_text(payload.get("content"))
+        if not notice_id or notice_id == "unknown":
+            return json_response(self, {"status": "error", "message": "notice_id is required"}, 400)
+        if not draft_type:
+            return json_response(self, {"status": "error", "message": "draft_type is required"}, 400)
+        return json_response(self, workspace_save_draft_file(notice_id, draft_type, content))
 
     def serve_safe_file(self, parsed):
         query = parse_qs(parsed.query)
