@@ -36,6 +36,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 HOST = os.getenv("DASHBOARD_HOST", "127.0.0.1")
 DEFAULT_PORT = 8765
 SUBPROCESS_TIMEOUT_SECONDS = 120
+MAX_JSON_BODY_BYTES = 1_000_000
+MAX_UPLOAD_BYTES = 50_000_000
 
 WEB_INDEX_PATH = BASE_DIR / "web/operator_dashboard/index.html"
 OPPORTUNITY_STATE_PATH = BASE_DIR / "data/opportunity_state.csv"
@@ -241,6 +243,12 @@ def json_response(handler, payload, status=200):
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
+
+
+class RequestTooLarge(ValueError):
+    def __init__(self, message, status=413):
+        super().__init__(message)
+        self.status = status
 
 
 def read_json(path, default):
@@ -2473,6 +2481,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/workspace-save-draft":
                 return self.handle_workspace_save_draft()
             return json_response(self, {"error": "Not found"}, 404)
+        except RequestTooLarge as error:
+            return json_response(self, {"status": "error", "message": str(error)}, error.status)
         except ValueError as error:
             return json_response(self, {"error": str(error)}, 400)
 
@@ -2488,6 +2498,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def read_json_body(self):
         length = int(self.headers.get("Content-Length", "0") or 0)
+        if length > MAX_JSON_BODY_BYTES:
+            raise RequestTooLarge("Request body too large.")
         if length <= 0:
             return {}
         raw = self.rfile.read(length).decode("utf-8")
@@ -2571,6 +2583,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             raise ValueError("multipart/form-data upload required")
+        content_length = int(self.headers.get("Content-Length", "0") or 0)
+        if content_length > MAX_UPLOAD_BYTES:
+            raise RequestTooLarge("Upload too large.")
         form = cgi.FieldStorage(
             fp=self.rfile,
             headers=self.headers,
