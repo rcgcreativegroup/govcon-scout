@@ -568,6 +568,35 @@
     .status-badge.amber { color: var(--amber); border-color: var(--amber); }
     .status-badge.red { color: var(--red); border-color: var(--red); }
     .status-badge.cyan { color: var(--cyan); border-color: var(--cyan); }
+    .setaside-fact {
+      margin: 8px 0 10px;
+    }
+    .setaside-raw {
+      color: #555555;
+      font: 10px "Courier New", monospace;
+      margin-top: 5px;
+    }
+    .analysis-marker {
+      background: #0a0a0c;
+      border: 1px solid #1e1e22;
+      color: var(--green);
+      font: 10px "Courier New", monospace;
+      padding: 8px 12px;
+      margin: 10px 0;
+    }
+    .analysis-marker.pending {
+      color: #555555;
+      padding: 12px;
+    }
+    .analysis-marker .workspace-inline {
+      border: 1px solid var(--purple);
+      color: var(--purple);
+      background: transparent;
+      font: 11px "Courier New", monospace;
+      padding: 5px 12px;
+      margin-top: 8px;
+      cursor: pointer;
+    }
     .hero-next-action,
     .hero-buyer {
       margin: 8px 0 10px;
@@ -953,6 +982,8 @@
     let pendingStageOverride = "";
     let pendingWorkflowStageOverride = "";
     let workflowStageConfirmLeft = 12;
+    const postAiStatusCache = new Map();
+    const postAiStatusPending = new Set();
     const autoSynopsisAttemptedNoticeIds = new Set();
     let autoSynopsisTimer = null;
 
@@ -1380,6 +1411,47 @@
       return `<span class="readiness-badge ${h(state.style || "muted")}">${h(state.value || "Metadata Only")}</span>${helper}`;
     }
 
+    function postAiStatus(row) {
+      return postAiStatusCache.get(row?.notice_id || "") || null;
+    }
+
+    function isPostAi(row) {
+      const status = postAiStatus(row);
+      return !!(status && status.is_post_ai);
+    }
+
+    async function ensurePostAiStatus(row, rerender = true) {
+      const id = row?.notice_id || "";
+      if (!id || postAiStatusCache.has(id) || postAiStatusPending.has(id)) return;
+      postAiStatusPending.add(id);
+      try {
+        const status = await api(`/api/post-ai-status/${encodeURIComponent(id)}`);
+        postAiStatusCache.set(id, status);
+      } catch (error) {
+        postAiStatusCache.set(id, {
+          status: "error",
+          notice_id: id,
+          is_post_ai: false,
+          definitely_post_ai: false,
+          probably_post_ai: false,
+          reports_found: []
+        });
+        console.warn("Post-AI status check failed", id, error);
+      } finally {
+        postAiStatusPending.delete(id);
+      }
+      const current = filteredItems()[activeIndex];
+      if (rerender && current?.notice_id === id) {
+        renderCard(current, filteredItems());
+      }
+    }
+
+    function invalidatePostAiStatus(noticeIdValue) {
+      if (!noticeIdValue) return;
+      postAiStatusCache.delete(noticeIdValue);
+      postAiStatusPending.delete(noticeIdValue);
+    }
+
     function renderRibbon(stage) {
       const stages = config.stage_enums?.stages || [];
       const current = stages.indexOf(stage);
@@ -1536,14 +1608,10 @@
         return `
           <div class="missing-desc">${h(message)}</div>
           ${retry}
-          ${renderFetchSynopsis(row)}
-          <div class="section">
-            <h3>Helpful Existing Links</h3>
-            ${renderLinks(row)}
-          </div>`;
+          ${renderFetchSynopsis(row)}`;
       }
       const text = found.text;
-      const preview = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+      const preview = text.length > 400 ? `${text.slice(0, 400)}...` : text;
       const label = found.label ? `<div class="hero-label">${h(found.label)}</div>` : "";
       return `
         ${label}<div class="${h(found.klass)}">${h(preview)}</div>
@@ -1679,6 +1747,13 @@
       return badges.slice(0, 4).map(badge => `<span class="status-badge ${h(badge.klass)}">${h(badge.label)}</span>`).join("");
     }
 
+    function renderSetAsideFact(row) {
+      const badge = eligibilityBadge(row);
+      const raw = setAsideText(row);
+      const rawText = raw ? `<div class="setaside-raw">${h(raw)}</div>` : "";
+      return `<div class="setaside-fact"><span class="status-badge ${h(badge.klass)}">${h(badge.label)}</span>${rawText}</div>`;
+    }
+
     function renderHeroNextAction(row) {
       const action = meaningfulValue(row.recommended_next_action);
       if (!action) return "";
@@ -1700,14 +1775,14 @@
         </div>`;
     }
 
-    function renderTriageHero(row, snapshot) {
+    function renderTriageHero(row) {
       return `
         <div class="triage-hero">
           ${renderUrgencyLine(row)}
-          ${renderWorkSnapshot(snapshot)}
+          <div class="hero-label">Description / Synopsis</div>
+          <div id="descriptionContent">${renderDescription(row)}</div>
           ${renderAgencyLocation(row)}
-          <div class="status-badges">${statusBadges(row)}</div>
-          ${renderHeroNextAction(row)}
+          ${renderSetAsideFact(row)}
           ${renderHeroBuyer(row)}
         </div>`;
     }
@@ -1721,6 +1796,52 @@
         <div class="section">
           <h3>AI / Plain-English Summary</h3>
           <div>${h(summary)}</div>
+        </div>`;
+    }
+
+    function renderNextActionSection(row) {
+      const action = meaningfulValue(row.recommended_next_action);
+      if (!action) return "";
+      return `
+        <div class="section">
+          <h3>Recommended Next Action</h3>
+          <div>${h(action)}</div>
+        </div>`;
+    }
+
+    function renderRequirementsSection(row) {
+      const hasRequirements = meaningfulValue(row.requirements);
+      const hasDisqualifiers = meaningfulValue(row.disqualifiers);
+      if (!hasRequirements && !hasDisqualifiers) {
+        return `
+          <div class="section">
+            <h3>Requirements / Disqualifiers</h3>
+            <span class="muted">No AI-extracted requirements/disqualifiers yet.</span>
+          </div>`;
+      }
+      return `
+        <div class="section columns">
+          <div>
+            <h3>Requirements</h3>
+            ${renderList(row.requirements)}
+          </div>
+          <div>
+            <h3>Disqualifiers</h3>
+            ${renderList(row.disqualifiers)}
+          </div>
+        </div>`;
+    }
+
+    function renderAnalysisMarker(isPostAiCard) {
+      if (isPostAiCard) {
+        return `<div class="analysis-marker">── AI ANALYSIS COMPLETE ─────────────────────</div>`;
+      }
+      return `
+        <div class="analysis-marker pending">
+          <div>── AI ANALYSIS NOT YET RUN ──────────────────</div>
+          <div>Requirements, disqualifiers, recommendations, and related outputs will appear here after AI Workspace review.</div>
+          <button class="workspace-inline" data-action-label="Open AI Workspace">Open AI Workspace →</button>
+          <div>─────────────────────────────────────────────</div>
         </div>`;
     }
 
@@ -1867,6 +1988,53 @@
         return;
       }
       const snapshot = snapshotData(row);
+      const postAi = isPostAi(row);
+      const postAiBody = `
+        ${renderUpload(row)}
+        <div class="section">
+          <h3>Document Checklist</h3>
+          ${renderChecklist(row)}
+        </div>
+
+        ${renderAnalysisMarker(true)}
+        ${renderDisqualifier(row)}
+        ${renderAiSummarySection(row, snapshot)}
+        ${renderRequirementsSection(row)}
+        ${renderNextActionSection(row)}
+
+        <div class="section">
+          <h3>Full Description</h3>
+          <div>${renderDescription(row)}</div>
+        </div>
+
+        <div class="section">
+          <h3>Related Outputs</h3>
+          ${renderLinks(row)}
+          <div class="copy-tools"><span class="label">Copy Tools</span><span>${UEI}</span>${copyButton("copy UEI", UEI)}</div>
+        </div>
+
+        <div class="section">
+          <h3>Buyer / Follow-Up</h3>
+          <div class="meta-grid">
+            <div class="meta"><span class="label">Buyer</span>${val(row.buyer_name)}</div>
+            <div class="meta"><span class="label">Phone</span>${val(row.buyer_phone)}</div>
+            <div class="meta"><span class="label">Last Call</span>${val(row.last_call_date)}</div>
+            <div class="meta"><span class="label">Last Call Notes</span>${val(row.last_call_notes)}</div>
+          </div>
+        </div>
+
+        ${renderDetails(row)}
+      `;
+      const preAiBody = `
+        ${renderUpload(row)}
+
+        <div class="section">
+          <h3>Documents / Upload</h3>
+          ${renderChecklist(row)}
+        </div>
+
+        ${renderAnalysisMarker(false)}
+      `;
       document.getElementById("card").innerHTML = `
         <div class="card-header">
           <div>
@@ -1880,54 +2048,12 @@
           </div>
         </div>
 
-        ${renderTriageHero(row, snapshot)}
-        ${renderDisqualifier(row)}
-
-        ${renderAiSummarySection(row, snapshot)}
-
-        <div class="section columns">
-          <div>
-            <h3>Requirements</h3>
-            ${renderList(row.requirements)}
-          </div>
-          <div>
-            <h3>Disqualifiers</h3>
-            ${renderList(row.disqualifiers)}
-          </div>
-        </div>
-
-        <div class="section">
-          <h3>Full Description</h3>
-          <div id="descriptionContent">${renderDescription(row)}</div>
-        </div>
-
-        <div class="section">
-          <h3>Buyer / Follow-Up</h3>
-          <div class="meta-grid">
-            <div class="meta"><span class="label">Buyer</span>${val(row.buyer_name)}</div>
-            <div class="meta"><span class="label">Phone</span>${val(row.buyer_phone)}</div>
-            <div class="meta"><span class="label">Last Call</span>${val(row.last_call_date)}</div>
-            <div class="meta"><span class="label">Last Call Notes</span>${val(row.last_call_notes)}</div>
-          </div>
-        </div>
+        ${renderTriageHero(row)}
 
         <div class="status-line" id="statusLine">${h(statusMessage)}</div>
         <div id="actionResultSlot">${renderActionResult()}</div>
 
-        ${renderUpload(row)}
-
-        <div class="section">
-          <h3>Document Checklist</h3>
-          ${renderChecklist(row)}
-        </div>
-
-        <div class="section">
-          <h3>Related Outputs</h3>
-          ${renderLinks(row)}
-          <div class="copy-tools"><span class="label">Copy Tools</span><span>${UEI}</span>${copyButton("copy UEI", UEI)}</div>
-        </div>
-
-        ${renderDetails(row)}
+        ${postAi ? postAiBody : preAiBody}
 
         ${renderNotes(row)}
 
@@ -2110,6 +2236,7 @@
       renderCounts(items);
       renderQueue(items);
       renderCard(items[activeIndex], items);
+      ensurePostAiStatus(items[activeIndex]);
       updateStickyBar(items[activeIndex]);
       renderWorkflowRibbon(items[activeIndex]);
       scheduleAutoSynopsisFetch(items[activeIndex]);
@@ -2214,6 +2341,10 @@
         });
         statusMessage = result.message || result.status || "Action complete.";
         const cardUpdated = applyCardData(row, result);
+        if (result.status === "ok" && action === "run_ai_review") {
+          invalidatePostAiStatus(row.notice_id);
+          ensurePostAiStatus(row);
+        }
         setActionResult({
           kind: result.status === "error" ? "error" : "success",
           message: result.error || result.message || result.status || "Action complete.",
@@ -2738,6 +2869,9 @@
         if (res.status === "ok") {
           const msgDiv = wsAppendMessage("ai", res.response);
           wsAddSaveBar(msgDiv, suggestedDraftType || null);
+          invalidatePostAiStatus(wsNoticeId);
+          const current = filteredItems()[activeIndex];
+          if (current?.notice_id === wsNoticeId) ensurePostAiStatus(current);
           await refreshWorkspaceSessions(true);
         } else {
           wsAppendMessage("error", `⚠ AI response failed — ${res.message || "unknown error"}`);

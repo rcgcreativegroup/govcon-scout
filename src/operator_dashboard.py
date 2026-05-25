@@ -2126,6 +2126,47 @@ def workspace_sessions_payload():
     return {"status": "ok", "sessions": sessions}
 
 
+def post_ai_status_payload(raw_notice_id):
+    notice_id = safe_text(raw_notice_id)
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", notice_id):
+        return {"status": "error", "message": "Invalid notice_id."}, 400
+
+    report_paths = {
+        "bid_no_bid": REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_bid_no_bid.md",
+        "decision_report": REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_decision_report.md",
+        "compliance_matrix": REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_compliance_matrix.md",
+        "sources_sought_plan": REPORTS_DIR / "sources_sought" / f"{notice_id}_sources_sought_plan.md",
+        "bid_price_sanity": REPORTS_DIR / "pricing" / f"{notice_id}_bid_price_sanity.md",
+    }
+    reports_found = [label for label, path in report_paths.items() if path.exists()]
+    definitely_post_ai = bool(reports_found)
+    probably_post_ai = False
+
+    if not definitely_post_ai:
+        history_file = WORKSPACE_DIR / notice_id / "conversation_history.json"
+        if history_file.exists():
+            try:
+                history = json.loads(history_file.read_text(encoding="utf-8", errors="ignore"))
+                long_assistant = [
+                    message for message in history
+                    if isinstance(message, dict)
+                    and message.get("role") == "assistant"
+                    and len(safe_text(message.get("content"))) > 500
+                ]
+                probably_post_ai = len(history) >= 3 and bool(long_assistant)
+            except (json.JSONDecodeError, OSError):
+                probably_post_ai = False
+
+    return {
+        "status": "ok",
+        "notice_id": notice_id,
+        "is_post_ai": definitely_post_ai or probably_post_ai,
+        "definitely_post_ai": definitely_post_ai,
+        "probably_post_ai": probably_post_ai,
+        "reports_found": reports_found,
+    }, 200
+
+
 def save_conversation_history(notice_id, history):
     ws_path = WORKSPACE_DIR / notice_id
     ws_path.mkdir(parents=True, exist_ok=True)
@@ -2274,6 +2315,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/api/workspace-history/"):
             notice_id = sanitize_id(unquote(parsed.path.rsplit("/", 1)[-1]))
             return json_response(self, workspace_history_payload(notice_id))
+        if parsed.path.startswith("/api/post-ai-status/"):
+            notice_id = unquote(parsed.path.rsplit("/", 1)[-1])
+            payload, status = post_ai_status_payload(notice_id)
+            return json_response(self, payload, status)
         if parsed.path.startswith("/api/workspace-draft/"):
             parts = parsed.path.split("/")
             if len(parts) >= 5:
