@@ -1,6 +1,6 @@
 # GovCon Scout Triage Board
 
-**Generated:** 2026-05-23 02:30:05
+**Generated:** 2026-05-25 20:40:00
 **Source CSV:** `exports/govcon_scout_opportunities_latest.csv`
 **Latest Batch Report:** `reports/batch_runs/process_shortlist_2026-05-21_1745.md`
 
@@ -8,8 +8,8 @@
 
 - **Manual Review - No Link/No Download:** 1
 - **Manual Review - Retry Candidate:** 7
-- **Pass/Not Ready:** 35
-- **Processed Successfully:** 2
+- **Pass/Not Ready:** 33
+- **Processed Successfully:** 4
 - **Sources Sought Plan Generated:** 5
 
 ## Pursue Now
@@ -19,8 +19,8 @@
 | HE125426QE041 - Fort Campbell Integrated Pest Management (IPM) Services | Processed Successfully | 65 | 65 | 2026-06-02 03:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/HE125426QE041_compliance_matrix.md) |
 | W912BV26QA059 - Tulsa Resident Office Janitorial Services | Processed Successfully | 59 | 59 | 2026-06-08 02:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/W912BV26QA059_compliance_matrix.md) |
 | FA254926EISTRFI - STARCOM Delt 1 Enlisted Initial Skills Training | Sources Sought Plan Generated | 59 | 59 | 2026-06-02 03:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/FA254926EISTRFI_sources_sought_plan.md) |
-| NBSFS_RFI_0001 - NBSFS Server and Services Modernization | Sources Sought Plan Generated | 57 | 57 | 2026-06-01 12:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/NBSFS_RFI_0001_sources_sought_plan.md) |
-| FA452826KH0001 - Virtual Environment Trainer | Sources Sought Plan Generated | 57 | 57 | 2026-05-29 12:00 PM CDT | Draft response or teaming outreach. | [open](reports/sources_sought/FA452826KH0001_sources_sought_plan.md) |
+| 1305M226Q0114 - S--Janitorial services contract for NOAA DRC | Processed Successfully | 50 | 50 | 2026-05-25 10:00 AM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/1305M226Q0114_compliance_matrix.md) |
+| 127EAY26Q0068 - Angeles National Forest Pest Control | Processed Successfully | 50 | 50 | 2026-05-27 07:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/127EAY26Q0068_compliance_matrix.md) |
 
 ## Processed Successfully
 
@@ -28,6 +28,8 @@
 |---|---:|---:|---:|---|---|---|
 | HE125426QE041 - Fort Campbell Integrated Pest Management (IPM) Services | Processed Successfully | 65 | 65 | 2026-06-02 03:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/HE125426QE041_compliance_matrix.md) |
 | W912BV26QA059 - Tulsa Resident Office Janitorial Services | Processed Successfully | 59 | 59 | 2026-06-08 02:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/W912BV26QA059_compliance_matrix.md) |
+| 1305M226Q0114 - S--Janitorial services contract for NOAA DRC | Processed Successfully | 50 | 50 | 2026-05-25 10:00 AM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/1305M226Q0114_compliance_matrix.md) |
+| 127EAY26Q0068 - Angeles National Forest Pest Control | Processed Successfully | 50 | 50 | 2026-05-27 07:00 PM CDT | Review decision packet; decide bid/no-bid. | [open](reports/opportunity_reviews/127EAY26Q0068_compliance_matrix.md) |
 
 ## Sources Sought Plans Generated
 
@@ -85,8 +87,6 @@ None.
 | W911SD26QA073 - SYNOPSIS-Wireless Access Points at Camp Buckner | Pass/Not Ready | 50 | 50 | 2026-06-20 11:00 AM CDT | Do not pursue until attachments/details are available. |  |
 | N0018926RW021 - NCIS CYBER SECURITY REQUIREMENT | Pass/Not Ready | 50 | 50 | 2026-05-28 04:00 PM CDT | Do not pursue until attachments/details are available. |  |
 | PSC_HPST_SVCS_RFI - REQUEST FOR INFORMATION (RFI) - US Coast Guard Polar Security Cutter (PSC) Human Performance Support and Training (HPS&T) System Technical Support Services | Pass/Not Ready | 50 | 50 | 2026-05-27 12:00 PM CDT | Do not pursue until attachments/details are available. |  |
-| 1305M226Q0114 - S--Janitorial services contract for NOAA DRC | Pass/Not Ready | 50 | 50 | 2026-05-25 10:00 AM CDT | Do not pursue until attachments/details are available. |  |
-| 127EAY26Q0068 - Angeles National Forest Pest Control | Pass/Not Ready | 50 | 50 | 2026-05-27 07:00 PM CDT | Do not pursue until attachments/details are available. |  |
 | W9124326QA003 - NEARNG Targeted Advertising with AI Capabilities | Pass/Not Ready | 49 | 49 | 2026-06-22 11:00 AM CDT | Do not pursue until attachments/details are available. |  |
 | M9549426R0019 - Insider Threat Monitoring Tool | Pass/Not Ready | 49 | 49 | 2026-05-29 09:00 AM CDT | Do not pursue until attachments/details are available. |  |
 | 36C10B26Q0436 - DA01--VA OIT BAM Product Line Appeals Modernization - RFI | Pass/Not Ready | 49 | 49 | 2026-05-29 12:00 PM CDT | Do not pursue until attachments/details are available. |  |

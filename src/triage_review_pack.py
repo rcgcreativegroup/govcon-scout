@@ -55,6 +55,7 @@ def artifact_path(notice_id, artifact):
         "manual_review": Path("reports/manual_review") / f"{notice_id}_manual_review.md",
         "analysis_packet": Path("reports/analysis_packets") / f"{notice_id}.md",
         "usaspending_intel": Path("reports/market_intel") / f"{notice_id}_usaspending_intel.md",
+        "bid_price_sanity": Path("reports/pricing") / f"{notice_id}_bid_price_sanity.md",
         "bid_price_sanity_check": Path("reports/pricing") / f"{notice_id}_bid_price_sanity_check.md",
     }
     return paths[artifact]
@@ -72,6 +73,7 @@ def existing_artifacts(notice_id):
         "manual_review",
         "analysis_packet",
         "usaspending_intel",
+        "bid_price_sanity",
         "bid_price_sanity_check",
     ]:
         path = artifact_path(notice_id, key)
@@ -510,6 +512,7 @@ def artifact_links(item):
         ("pricing", "pricing"),
         ("pricing_csv", "pricing csv"),
         ("usaspending_intel", "usa-spending"),
+        ("bid_price_sanity", "bid price sanity"),
         ("bid_price_sanity_check", "sanity check"),
         ("sources_sought", "sources sought"),
         ("manual_review", "manual review"),
@@ -529,9 +532,86 @@ def section_bullets(text, heading):
                 break
             in_section = section == heading
             continue
-        if in_section and line.startswith("- **"):
+        if in_section and line.startswith("- "):
             bullets.append(line)
     return bullets
+
+
+def clean_bullet_text(line):
+    text = re.sub(r"^-\s*", "", safe_text(line))
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    return " ".join(text.split())
+
+
+def section_body_text(text, heading):
+    lines = []
+    in_section = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            section = line.replace("## ", "", 1).strip()
+            if in_section and section != heading:
+                break
+            in_section = section == heading
+            continue
+        if in_section:
+            lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def bid_price_sanity_source(notice_id):
+    primary = artifact_path(notice_id, "bid_price_sanity")
+    if primary.exists():
+        return primary
+    fallback = artifact_path(notice_id, "bid_price_sanity_check")
+    if fallback.exists():
+        return fallback
+    return None
+
+
+def bid_price_next_action(status):
+    status_lower = safe_text(status).lower()
+    if "vendor" in status_lower or "subcontractor quote" in status_lower:
+        return "Get vendor quote"
+    if "pass" in status_lower and "not priceable" in status_lower:
+        return "Park unless pricing docs are obtained"
+    if "not priceable" in status_lower:
+        return "Obtain pricing docs before pricing"
+    return safe_text(status) or "No pricing sanity action available"
+
+
+def bid_price_sanity_summary(notice_id):
+    path = bid_price_sanity_source(notice_id)
+    if not path:
+        return {
+            "exists": False,
+            "status": "Not run",
+            "recommended_next_action": "No bid price sanity report available",
+            "risk_summary": "Pending",
+            "source_path": "",
+        }
+
+    text = read_text(path)
+    status = first_match(text, [
+        r"- \*\*Recommended next action:\*\*\s*(.+)",
+        r"\*\*Recommended next action:\*\*\s*(.+)",
+    ])
+    if not status:
+        action_section = section_body_text(text, "Recommended Next Action")
+        status = first_match(action_section, [r"\*\*(.+?)\*\*"]) or "Report available"
+
+    risk_flags = [
+        clean_bullet_text(line)
+        for line in section_bullets(text, "Pricing Risk Flags")
+    ]
+    risk_summary = " ".join(risk_flags[:3]) if risk_flags else "No pricing risk flags found."
+
+    return {
+        "exists": True,
+        "status": status,
+        "recommended_next_action": bid_price_next_action(status),
+        "risk_summary": risk_summary,
+        "source_path": str(path),
+    }
 
 
 def usaspending_award_count(notice_id, text):
@@ -689,7 +769,9 @@ def detect_usaspending_data_quality(notice_id):
     Returns 'warning', 'clean', or 'no_data'.
     """
     intel_text = read_text(artifact_path(notice_id, "usaspending_intel"))
+    sanity_text = read_text(artifact_path(notice_id, "bid_price_sanity"))
     check_text = read_text(artifact_path(notice_id, "bid_price_sanity_check"))
+    check_text = sanity_text + check_text
     combined = (intel_text + check_text).upper()
 
     if not intel_text and not check_text:
@@ -706,7 +788,7 @@ def intel_status(notice_id, artifacts):
     pricing_exists = "pricing" in artifacts
     pricing_csv_exists = "pricing_csv" in artifacts
     usaspending_exists = "usaspending_intel" in artifacts
-    sanity_check_exists = "bid_price_sanity_check" in artifacts
+    sanity_check_exists = "bid_price_sanity" in artifacts or "bid_price_sanity_check" in artifacts
     dq_status = detect_usaspending_data_quality(notice_id)
 
     has_core = all(key in artifacts for key in ["bid_no_bid", "decision", "compliance"])
@@ -936,24 +1018,39 @@ def queue_table(queue):
         return "No conservative USAspending candidates found yet."
 
     lines = [
-        "| Priority | Candidate | Market Intel | Awards | Top Recipients | Intel Posture | Reason | Related Outputs |",
-        "|---:|---|---|---:|---|---|---|---|",
+        "| Priority | Candidate | USAspending | Awards | Top Recipients | Bid Price Sanity | Recommended Next Action | Pricing Risk Summary | Bid Price Sanity Source | Related Outputs |",
+        "|---:|---|---|---:|---|---|---|---|---|---|",
     ]
 
     for index, (item, reason) in enumerate(queue, start=1):
         if item.get("notice_id"):
             candidate = f"{item['notice_id']} - {item['title']}".replace("|", "\\|")
             related = artifact_links(item)
+            pricing = bid_price_sanity_summary(item["notice_id"])
         else:
             candidate = f"MyBidMatch - {item['title']}".replace("|", "\\|")
             related = mybidmatch_related_outputs(item)
+            pricing = {
+                "status": "Not run",
+                "recommended_next_action": "Validate source identifier first",
+                "risk_summary": reason,
+                "source_path": "",
+            }
         intel = usaspending_queue_intel(item)
-        market_intel = "Report ready" if intel["report_exists"] else "Not run"
+        market_intel = "Ready" if intel["report_exists"] else "Not run"
         award_count = intel["award_count"] if intel["award_count"] is not None else "Pending"
         recipients = recipient_summary(intel["top_recipients"]).replace("|", "/")
+        pricing_status = pricing["status"].replace("|", "/")
+        pricing_action = pricing["recommended_next_action"].replace("|", "/")
+        pricing_risk = pricing["risk_summary"].replace("|", "/")
+        pricing_source = (
+            markdown_link(pricing["source_path"], pricing["source_path"])
+            if pricing.get("source_path")
+            else "Pending"
+        )
         lines.append(
             f"| {index} | {candidate} | {market_intel} | {award_count} | {recipients} "
-            f"| {intel['posture']} | {reason} | {related} |"
+            f"| {pricing_status} | {pricing_action} | {pricing_risk} | {pricing_source} | {related} |"
         )
 
     return "\n".join(lines)
