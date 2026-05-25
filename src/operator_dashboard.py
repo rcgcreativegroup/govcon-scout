@@ -440,7 +440,7 @@ def load_exports_by_notice():
     return index
 
 
-def parse_archive_due_date(value):
+def parse_due_date(value):
     text = safe_text(value)
     if not text:
         return "", "", ""
@@ -2177,7 +2177,7 @@ def post_ai_status_payload(raw_notice_id):
     }, 200
 
 
-def parse_due_date(value):
+def parse_archive_due_date(value):
     text = safe_text(value)
     if not text:
         return None
