@@ -6,6 +6,7 @@ warnings.filterwarnings("ignore", message="'cgi' is deprecated.*", category=Depr
 import ast
 import cgi
 import csv
+import errno
 import json
 import mimetypes
 import os
@@ -23,6 +24,11 @@ import requests
 
 from detail_enrichment import extract_description_from_detail, fetch_sam_detail
 from sam_client import fetch_notice_description, get_sam_api_key
+
+try:
+    import pytz
+except ImportError:
+    pytz = None
 
 
 # CONFIG / PATH CONSTANTS
@@ -1401,6 +1407,89 @@ def action_run_ai_review(notice_id):
     return {"status": "error", "message": "AI review failed. Opportunity was not advanced.", "commands": summaries, "extracted_zips": extracted_zips}
 
 
+def action_extract_documents(notice_id):
+    notice_id = sanitize_id(notice_id)
+    folders = [
+        ("downloads", DOWNLOADS_DIR / notice_id),
+        ("manual_uploads", MANUAL_UPLOADS_DIR / notice_id),
+    ]
+    existing_folders = [(label, folder) for label, folder in folders if folder.exists() and folder_has_files(folder)]
+    if not existing_folders:
+        return {
+            "status": "error",
+            "message": f"No downloaded or uploaded files found for this notice_id. Place files in downloads/{notice_id}/ first.",
+        }
+
+    zip_count = 0
+    extracted_zip_count = 0
+    errors = []
+    skipped_files = []
+    commands = []
+
+    for _label, folder in existing_folders:
+        zip_files = sorted(folder.rglob("*.zip"))
+        zip_count += len(zip_files)
+        if zip_files:
+            extracted, error = extract_zip_files(folder)
+            extracted_zip_count += len(extracted)
+            if error:
+                errors.append(error)
+
+    if (BASE_DIR / "src/extract_documents.py").exists():
+        command = [sys.executable, "src/extract_documents.py", "--notice-id", notice_id]
+        ok, summaries = run_backend_commands(notice_id, [command])
+        commands.extend(summaries)
+    elif (BASE_DIR / "src/local_document_extractor.py").exists():
+        ok = True
+        for label, folder in existing_folders:
+            if not supported_documents(folder):
+                continue
+            command = [
+                sys.executable,
+                "src/local_document_extractor.py",
+                "--notice-id",
+                notice_id,
+                "--downloads-dir",
+                label,
+            ]
+            command_ok, summaries = run_backend_commands(notice_id, [command])
+            commands.extend(summaries)
+            ok = ok and command_ok
+    else:
+        return {
+            "status": "error",
+            "message": "No document extraction script found. Expected src/extract_documents.py or src/local_document_extractor.py.",
+        }
+
+    extract_folder = REPORTS_DIR / "document_extracts" / notice_id
+    source_file_count = sum(len(supported_documents(folder)) for _label, folder in existing_folders)
+    extract_file_count = len(list(extract_folder.glob("*.txt"))) if extract_folder.exists() else 0
+    for _label, folder in existing_folders:
+        for path in sorted(folder.rglob("*")):
+            if path.is_file() and path.suffix.lower() not in SUPPORTED_ANALYSIS_EXTENSIONS and path.suffix.lower() != ".zip":
+                skipped_files.append(str(path.relative_to(BASE_DIR)))
+
+    if not ok:
+        errors.append("Document extraction command failed.")
+        status = "error"
+    else:
+        status = "ok"
+
+    return {
+        "status": status,
+        "notice_id": notice_id,
+        "download_folder": f"downloads/{notice_id}",
+        "extract_folder": f"reports/document_extracts/{notice_id}",
+        "source_file_count": source_file_count,
+        "extract_file_count": extract_file_count,
+        "zip_count": zip_count,
+        "extracted_zip_count": extracted_zip_count,
+        "skipped_files": skipped_files,
+        "errors": errors,
+        "commands": commands,
+    }
+
+
 def action_draft_response(notice_id):
     row = row_for_notice(notice_id)
     context = " ".join([
@@ -1552,7 +1641,10 @@ def fetch_synopsis_from_sam(notice_id):
 
 WORKSPACE_DIR = REPORTS_DIR / "opportunity_workspaces"
 REPORT_CONTENT_LIMIT = 3000
-EXTRACT_CONTENT_LIMIT = 16000
+TOTAL_CONTEXT_BUDGET = 600000
+SYSTEM_PROMPT_RESERVE = 50000
+DOCUMENT_BUDGET = TOTAL_CONTEXT_BUDGET - SYSTEM_PROMPT_RESERVE
+MIN_FILE_CHARS = 5000
 
 DRAFT_TYPE_TO_FILENAME = {
     "buyer_email": "buyer_email_draft.md",
@@ -1562,6 +1654,138 @@ DRAFT_TYPE_TO_FILENAME = {
     "source_sought_response": "source_sought_response.md",
     "general_notes": "workspace_notes.md",
 }
+
+
+class ContextBundle(dict):
+    def __init__(self, payload, error=None):
+        super().__init__(payload)
+        self.error = error
+
+    def __iter__(self):
+        yield self
+        yield self.error
+
+
+def document_priority(filename):
+    name = filename.lower()
+    if "amd" in name or "amendment" in name:
+        return 1
+    if "qa" in name or "q_a" in name or "q&a" in name:
+        return 2
+    if "sow" in name or "pws" in name:
+        return 3
+    if "sol" in name or "solicitation" in name:
+        return 4
+    if "pricing" in name or "schedule" in name or "clin" in name:
+        return 5
+    return 6
+
+
+def truncate_at_paragraph(text, limit):
+    if len(text) <= limit:
+        return text, False
+    if limit <= 0:
+        return "", True
+    chunk = text[:limit]
+    paragraph_break = max(chunk.rfind("\n\n"), chunk.rfind("\r\n\r\n"))
+    if paragraph_break > max(500, int(limit * 0.6)):
+        return chunk[:paragraph_break].rstrip() + "\n...[truncated]", True
+    sentence_breaks = [chunk.rfind(". "), chunk.rfind("? "), chunk.rfind("! "), chunk.rfind("\n")]
+    sentence_break = max(sentence_breaks)
+    if sentence_break > max(500, int(limit * 0.6)):
+        return chunk[:sentence_break + 1].rstrip() + "\n...[truncated]", True
+    return chunk.rstrip() + "\n...[truncated]", True
+
+
+def build_document_extract_bundle(notice_id):
+    extract_dir = REPORTS_DIR / "document_extracts" / notice_id
+    bundle = {
+        "document_extract_files": [],
+        "document_extract_total_chars": 0,
+        "document_extract_budget_used": 0,
+        "document_extract_truncated": False,
+        "document_extract_files_count": 0,
+        "document_extract_files_found": 0,
+        "document_extract_available": False,
+        "document_extract_content": "",
+    }
+    if not extract_dir.exists():
+        print_context_bundle_summary(notice_id, bundle)
+        return bundle
+
+    files = [
+        path for path in extract_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in {".txt", ".md"}
+    ]
+    bundle["document_extract_files_found"] = len(files)
+    files.sort(key=lambda path: (document_priority(path.name), path.stat().st_size, path.name.lower()))
+
+    budget_used = 0
+    total_available = 0
+    combined = []
+    truncated_files = []
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        chars_available = len(text)
+        total_available += chars_available
+        priority = document_priority(path.name)
+        remaining = DOCUMENT_BUDGET - budget_used
+        if chars_available <= MIN_FILE_CHARS:
+            included_text = text
+            truncated = False
+        elif remaining <= 0:
+            break
+        else:
+            included_text, truncated = truncate_at_paragraph(text, remaining)
+        chars_included = len(included_text)
+        budget_used += chars_included
+        record = {
+            "filename": path.name,
+            "priority": priority,
+            "chars_available": chars_available,
+            "chars_included": chars_included,
+            "truncated": truncated,
+            "content": included_text,
+        }
+        bundle["document_extract_files"].append(record)
+        combined.append(f"\n\n--- {path.name} ---\n{included_text}")
+        if truncated:
+            truncated_files.append(record)
+        if budget_used >= DOCUMENT_BUDGET:
+            break
+
+    bundle.update({
+        "document_extract_total_chars": total_available,
+        "document_extract_budget_used": budget_used,
+        "document_extract_truncated": bool(truncated_files),
+        "document_extract_files_count": len(bundle["document_extract_files"]),
+        "document_extract_available": bool(bundle["document_extract_files"]),
+        "document_extract_content": "".join(combined).strip(),
+    })
+    print_context_bundle_summary(notice_id, bundle)
+    return bundle
+
+
+def print_context_bundle_summary(notice_id, bundle):
+    files = bundle.get("document_extract_files", [])
+    amendments = [
+        f"✓ {record['filename']} ({record['chars_included']:,})"
+        for record in files
+        if record["priority"] == 1
+    ]
+    print("─────────────────────────────────────────")
+    print(f"Context bundle: {notice_id}")
+    print(f"  Files found:     {bundle.get('document_extract_files_found', bundle.get('document_extract_files_count', 0))}")
+    print(f"  Files included:  {len(files)}")
+    print(f"  Total available: {bundle.get('document_extract_total_chars', 0):,} chars")
+    print(f"  Budget used:     {bundle.get('document_extract_budget_used', 0):,} chars")
+    print(f"  Budget limit:    {DOCUMENT_BUDGET:,} chars")
+    print(f"  Truncation:      {'Some files truncated' if bundle.get('document_extract_truncated') else 'None needed'}")
+    print(f"  Amendments:      {' '.join(amendments) if amendments else 'None detected'}")
+    for record in files:
+        if record.get("truncated"):
+            print(f"  TRUNCATED: {record['filename']} ({record['chars_available']:,} → {record['chars_included']:,} chars)")
+    print("─────────────────────────────────────────")
 
 
 def build_workspace_context(notice_id):
@@ -1611,24 +1835,7 @@ def build_workspace_context(notice_id):
         if folder.exists():
             docs.extend(sorted(f.name for f in folder.iterdir() if f.is_file()))
 
-    extract_dir = REPORTS_DIR / "document_extracts" / notice_id
-    extract_content = ""
-    if extract_dir.exists():
-        texts = []
-        total = 0
-        for f in sorted(extract_dir.iterdir()):
-            if f.is_file() and f.suffix.lower() in {".txt", ".md"}:
-                file_text = f.read_text(encoding="utf-8", errors="ignore")
-                header = f"\n\n--- {f.name} ---\n"
-                chunk = header + file_text
-                if total + len(chunk) > EXTRACT_CONTENT_LIMIT:
-                    remaining = EXTRACT_CONTENT_LIMIT - total - len(header)
-                    if remaining > 200:
-                        texts.append(header + file_text[:remaining] + "\n...[truncated]")
-                    break
-                texts.append(chunk)
-                total += len(chunk)
-        extract_content = "".join(texts).strip()
+    document_bundle = build_document_extract_bundle(notice_id)
 
     workspace_path = WORKSPACE_DIR / notice_id
     saved_drafts = []
@@ -1640,7 +1847,7 @@ def build_workspace_context(notice_id):
 
     conv_history_path = workspace_path / "conversation_history.json"
 
-    return {
+    payload = {
         "notice_id": notice_id,
         "title": safe_text(row.get("title")),
         "agency": safe_text(row.get("agency")),
@@ -1666,16 +1873,52 @@ def build_workspace_context(notice_id):
         "reports_available": reports_available,
         "report_content": report_content,
         "documents_available": docs,
-        "document_extracts_available": extract_dir.exists() and bool(extract_content),
-        "document_extract_content": extract_content,
+        "document_extracts_available": document_bundle["document_extract_available"],
+        "document_extract_content": document_bundle["document_extract_content"],
+        "document_extract_files": document_bundle["document_extract_files"],
+        "document_extract_total_chars": document_bundle["document_extract_total_chars"],
+        "document_extract_budget_used": document_bundle["document_extract_budget_used"],
+        "document_extract_truncated": document_bundle["document_extract_truncated"],
+        "document_extract_files_count": document_bundle["document_extract_files_count"],
+        "document_extract_files_found": document_bundle["document_extract_files_found"],
+        "document_extract_available": document_bundle["document_extract_available"],
         "conversation_history_available": conv_history_path.exists(),
         "saved_drafts": saved_drafts,
         "context_assembled_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }, None
+    }
+    return ContextBundle(payload)
 
 
 def format_context_for_prompt(ctx):
+    if pytz:
+        now_utc = datetime.now(pytz.utc)
+        now_cst = now_utc.astimezone(pytz.timezone("America/Chicago"))
+        now_est = now_utc.astimezone(pytz.timezone("America/New_York"))
+        date_block = f"""
+CURRENT DATE AND TIME:
+- Today: {now_cst.strftime('%A, %B %d, %Y')}
+- Current time CST: {now_cst.strftime('%I:%M %p %Z')}
+- Current time EST: {now_est.strftime('%I:%M %p %Z')}
+- UTC: {now_utc.strftime('%Y-%m-%d %H:%M %Z')}
+
+Always use this date when calculating deadlines, days remaining, and urgency.
+Never assume or guess the current date.
+""".strip()
+    else:
+        now_local = datetime.now()
+        date_block = f"""
+CURRENT DATE AND TIME:
+- Today: {now_local.strftime('%A, %B %d, %Y')}
+- Current local system time: {now_local.strftime('%I:%M %p')}
+- Timezone note: pytz is not installed; this is local system time.
+
+Always use this date when calculating deadlines, days remaining, and urgency.
+Never assume or guess the current date.
+""".strip()
+
     lines = [
+        date_block,
+        "",
         f"NOTICE ID: {ctx['notice_id']}",
         f"TITLE: {ctx['title']}",
         f"AGENCY: {ctx['agency']}",
@@ -1714,8 +1957,18 @@ def format_context_for_prompt(ctx):
             lines += [f"--- {label} ---", ctx["report_content"][key], ""]
     if ctx["documents_available"]:
         lines += ["DOWNLOADED DOCUMENTS:", "\n".join(f"  - {d}" for d in ctx["documents_available"]), ""]
-    if ctx.get("document_extract_content"):
-        lines += ["DOCUMENT EXTRACT CONTENT:", ctx["document_extract_content"], ""]
+    if ctx.get("document_extract_files"):
+        lines.append("DOCUMENT EXTRACTS:")
+        for record in ctx["document_extract_files"]:
+            truncated = "Yes" if record.get("truncated") else "No"
+            lines += [
+                "========================================",
+                f"DOCUMENT: {record.get('filename', '')}",
+                f"SIZE: {record.get('chars_included', 0):,} chars | TRUNCATED: {truncated}",
+                "========================================",
+                record.get("content", ""),
+                "",
+            ]
     if ctx["operator_notes"]:
         lines.append("OPERATOR NOTES:")
         for note in ctx["operator_notes"][:10]:
@@ -1964,6 +2217,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.handle_note()
             if parsed.path == "/api/fetch-synopsis":
                 return self.handle_fetch_synopsis()
+            if parsed.path == "/api/extract-documents":
+                return self.handle_extract_documents()
             if parsed.path.startswith("/api/upload/"):
                 notice_id = unquote(parsed.path.rsplit("/", 1)[-1])
                 return self.handle_upload(notice_id)
@@ -2050,6 +2305,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not notice_id:
             raise ValueError("notice_id is required")
         return json_response(self, fetch_synopsis_from_sam(notice_id))
+
+    def handle_extract_documents(self):
+        payload = self.read_json_body()
+        notice_id = safe_text(payload.get("notice_id"))
+        if not notice_id:
+            raise ValueError("notice_id is required")
+        result = action_extract_documents(notice_id)
+        status_code = 200 if result.get("status") == "ok" else 400
+        return json_response(self, result, status_code)
 
     def handle_upload(self, notice_id):
         if not notice_id:
@@ -2167,16 +2431,50 @@ def parse_args():
     return parser.parse_args()
 
 
+def port_was_explicitly_requested():
+    return any(arg == "--port" or arg.startswith("--port=") for arg in sys.argv[1:])
+
+
+def create_dashboard_server(port, allow_fallback=True):
+    candidate = port
+    last_error = None
+    for _attempt in range(30 if allow_fallback else 1):
+        try:
+            server = ThreadingHTTPServer((HOST, candidate), DashboardHandler)
+            if candidate != port:
+                print(f"Port {port} is already in use; using {candidate} instead.")
+            return server, candidate
+        except OSError as error:
+            if error.errno != errno.EADDRINUSE:
+                raise
+            last_error = error
+            if not allow_fallback:
+                break
+            candidate += 1
+    raise OSError(
+        errno.EADDRINUSE,
+        f"Port {port} is already in use. Try --port {port + 1} or stop the existing dashboard process.",
+    ) from last_error
+
+
 def main():
     args = parse_args()
+    try:
+        server, port = create_dashboard_server(
+            args.port,
+            allow_fallback=not port_was_explicitly_requested(),
+        )
+    except OSError as error:
+        print(f"Could not start GovCon Scout Operator Dashboard: {error}", file=sys.stderr)
+        return 1
     backup_path = initialize()
     if backup_path:
         print(f"Backed up opportunity state: {backup_path}")
-    server = ThreadingHTTPServer((HOST, args.port), DashboardHandler)
-    print(f"GovCon Scout Operator Dashboard: http://localhost:{args.port}")
+    print(f"GovCon Scout Operator Dashboard: http://localhost:{port}")
     print("This local dashboard does not call SAM.gov or USAspending unless an operator clicks an action that wraps an existing script.")
     server.serve_forever()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -697,6 +697,20 @@
     .ws-check li { font: 11px 'Courier New',monospace; padding: 2px 0; }
     .ws-check .has { color: #00ff88; }
     .ws-check .missing { color: #555; }
+    .ws-extract-btn {
+      display: block; width: 100%; text-align: left;
+      background: transparent; border: 1px solid #4499ff;
+      color: #4499ff; font: 11px 'Courier New',monospace;
+      padding: 5px 8px; margin: 6px 0 8px; cursor: pointer;
+    }
+    .ws-extract-btn:hover:not(:disabled) { background: #0a1a2e; }
+    .ws-extract-btn:disabled { opacity: 0.45; cursor: default; }
+    .ws-extract-status {
+      color: #555; font: 11px 'Courier New',monospace;
+      margin: -2px 0 8px; line-height: 1.4;
+    }
+    .ws-extract-status.ok { color: #00ff88; }
+    .ws-extract-status.error { color: #ff4444; }
     .ws-meta-row { font: 11px 'Courier New',monospace; color: #aaa; padding: 2px 0; }
     .ws-meta-row span { color: #e0e0e0; }
     .ws-qa-btn {
@@ -844,7 +858,7 @@
       const text = String(value || "").trim().toLowerCase();
       return !!text && !["not available", "none", "null", "n/a", "na"].includes(text);
     };
-    const isFlagged = row => ["true", "yes", "1", "flagged"].includes(textOf(row.flagged));
+    const isFlagged = row => ["true", "yes", "y", "1", "flagged"].includes(textOf(row.flagged).trim());
     const containsAny = (value, terms) => terms.some(term => textOf(value).includes(term));
     const setAsideText = row => [row.set_aside, row.set_aside_type, row.set_aside_description].filter(hasMeaningful).join(" ");
     const setAsideEligibility = row => {
@@ -885,7 +899,7 @@
     };
     const hasNoticeId = row => hasMeaningful(row.notice_id);
     const activeReview = row => {
-      if (isFlagged(row)) return true;
+      if (isFlagged(row)) return false;
       if (!hasNoticeId(row)) return false;
       if (isArchivedStatus(row)) return false;
       if (setAsideEligibility(row).bucket === "ineligible_now") return false;
@@ -1913,8 +1927,17 @@
     }
 
     function toggleHold(row) {
+      const wasFlagged = isFlagged(row);
       row.flagged = isFlagged(row) ? "" : "true";
       statusMessage = isFlagged(row) ? "Held / flagged for review." : "Hold removed.";
+      if (!wasFlagged && activeFilter === "Active") {
+        const nextItems = filteredItems();
+        if (activeIndex >= nextItems.length) activeIndex = Math.max(0, nextItems.length - 1);
+      }
+      if (wasFlagged && activeFilter === "Flagged") {
+        const nextItems = filteredItems();
+        if (activeIndex >= nextItems.length) activeIndex = Math.max(0, nextItems.length - 1);
+      }
       renderFilters();
       render();
     }
@@ -2382,6 +2405,13 @@
         { label: "Operator Notes",      has: ctx.operator_notes?.length > 0 },
         { label: "Saved Drafts",        has: ctx.saved_drafts?.length > 0 },
       ];
+      const downloadedDocs = ctx.documents_available?.length > 0;
+      const extractsReady = !!ctx.document_extracts_available;
+      const showExtractButton = downloadedDocs && !extractsReady;
+      const extractButton = showExtractButton ? `
+        <button id="aiWsExtractDocs" class="ws-extract-btn">⟳ Extract Documents</button>
+        <div id="aiWsExtractStatus" class="ws-extract-status"></div>
+      ` : "";
 
       const savedDrafts = ctx.saved_drafts || [];
       const draftItems = savedDrafts.map(fname => {
@@ -2401,6 +2431,7 @@
         <ul class="ws-check">
           ${checks.map(c => `<li class="${c.has ? "has" : "missing"}">${c.has ? "✓" : "✗"} ${h(c.label)}</li>`).join("")}
         </ul>
+        ${extractButton}
 
         <span class="ws-section-label">Metadata</span>
         <div class="ws-meta-row">Due: <span>${h(due)}${h(daysLabel)}</span></div>
@@ -2434,6 +2465,51 @@
       left.querySelectorAll(".ws-draft-btn").forEach(btn => {
         btn.onclick = () => wsOpenDraftModal(btn.dataset.draftType, btn.dataset.draftFname);
       });
+
+      const extractBtn = left.querySelector("#aiWsExtractDocs");
+      if (extractBtn) {
+        extractBtn.onclick = () => wsExtractDocuments();
+      }
+    }
+
+    async function wsExtractDocuments() {
+      if (!wsNoticeId) return;
+      const btn = document.getElementById("aiWsExtractDocs");
+      const status = document.getElementById("aiWsExtractStatus");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⟳ Extracting...";
+      }
+      if (status) {
+        status.className = "ws-extract-status";
+        status.textContent = "⟳ Extracting documents...";
+      }
+      try {
+        const res = await api("/api/extract-documents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notice_id: wsNoticeId })
+        });
+        if (res.status === "ok") {
+          if (status) {
+            status.className = "ws-extract-status ok";
+            status.textContent = `✓ Extracted ${res.extract_file_count || 0} file(s). Refreshing context...`;
+          }
+          const ctx = await api(`/api/workspace-context/${encodeURIComponent(wsNoticeId)}`);
+          wsRenderLeft(ctx);
+          return;
+        }
+        throw new Error(res.message || "Unknown extraction error");
+      } catch (err) {
+        if (status) {
+          status.className = "ws-extract-status error";
+          status.textContent = `⚠ Extraction failed — ${err.message}`;
+        }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "⟳ Extract Documents";
+        }
+      }
     }
 
     async function openAIWorkspace(row) {
