@@ -440,7 +440,7 @@ def load_exports_by_notice():
     return index
 
 
-def parse_due_date(value):
+def parse_archive_due_date(value):
     text = safe_text(value)
     if not text:
         return "", "", ""
@@ -2203,7 +2203,7 @@ def auto_archive_pastdue_payload(preview=False):
     eligible_indexes = []
 
     for index, row in enumerate(rows):
-        due = parse_due_date(row.get("due_date"))
+        due = parse_archive_due_date(row.get("due_date"))
         if due is None:
             invalid_or_missing_due_date += 1
             continue
