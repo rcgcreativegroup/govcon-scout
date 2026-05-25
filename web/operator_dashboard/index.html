@@ -395,6 +395,35 @@
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
+    .boxed-section {
+      background: #141416;
+      border: 1px solid #1e1e22;
+      padding: 10px 12px;
+    }
+    .ai-summary-text {
+      color: #7ec8a4;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+    .next-action-box div {
+      color: #f0a500;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .intelligence-grid {
+      gap: 1px;
+      background: #1e1e22;
+    }
+    .requirements-text {
+      color: #aaaaaa;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .disqualifiers-text {
+      color: #cc7070;
+      font-size: 11px;
+      line-height: 1.5;
+    }
     .ribbon { display: flex; gap: 5px; flex-wrap: wrap; margin: 10px 0 4px; }
     .stage {
       padding: 5px 7px;
@@ -512,51 +541,89 @@
       background: #101012;
     }
     .triage-hero {
-      border-bottom: 1px solid var(--border);
-      padding: 10px 0 12px;
-      margin-bottom: 12px;
+      margin: 0 0 12px;
+      background: #1e1e22;
+      display: grid;
+      gap: 1px;
+      border-bottom: 1px solid #1e1e22;
     }
     .urgency-line {
-      font: bold 13px "Courier New", monospace;
-      margin: 10px 0 12px;
+      font: bold 12px "Courier New", monospace;
+      margin: 0;
+      padding: 8px 14px;
+      border-bottom: 1px solid #1e1e22;
     }
-    .urgency-line.danger { color: var(--red); }
-    .urgency-line.warn { color: var(--amber); }
-    .urgency-line.good { color: var(--green); }
-    .urgency-line.muted { color: var(--secondary); }
+    .urgency-line.danger { color: var(--red); background: #1a0505; }
+    .urgency-line.warn { color: var(--amber); background: #1a1200; }
+    .urgency-line.good { color: var(--green); background: #051a0e; }
+    .urgency-line.muted { color: var(--secondary); background: #0e0e10; }
     .hero-label {
       color: #8fbcd4;
-      font: 700 10px "Courier New", monospace;
+      font: 700 9px "Courier New", monospace;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+      margin-bottom: 6px;
     }
-    .work-snapshot {
-      margin: 8px 0 12px;
+    .triage-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: #1e1e22;
+    }
+    .triage-box {
+      background: #141416;
+      padding: 10px 12px;
+      min-height: 62px;
+    }
+    .triage-value {
       color: #e0e0e0;
       font: 12px "Courier New", monospace;
-      line-height: 1.6;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
     }
-    .work-snapshot.fallback,
-    .work-snapshot.missing { color: var(--amber); }
-    .snapshot-more summary {
-      color: var(--cyan);
-      cursor: pointer;
-      display: inline;
-      font-size: 11px;
+    .triage-value.muted { color: #888888; }
+    .description-box {
+      background: #0e1a0e;
+      padding: 10px 14px;
+      border-bottom: 1px solid #1e1e22;
     }
-    .snapshot-more pre {
+    .description-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 7px;
+    }
+    .shortcut-hint {
+      color: #555555;
+      font: 10px "Courier New", monospace;
+    }
+    .triage-box .checklist {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .triage-box .check {
+      padding: 4px 5px;
+      font-size: 10px;
+      min-height: 0;
+    }
+    .triage-box .check .label {
+      font-size: 9px;
+      margin-bottom: 2px;
+    }
+    .triage-box .upload-zone {
+      margin-top: 8px;
+      padding: 8px;
+    }
+    .buyer-lines {
+      display: grid;
+      gap: 5px;
       color: #e0e0e0;
-      font: 12px "Courier New", monospace;
-      white-space: pre-wrap;
-      margin: 8px 0 0;
+      font: 11px "Courier New", monospace;
+      line-height: 1.35;
     }
-    .agency-location {
-      margin: 6px 0 10px;
-      font: 12px "Courier New", monospace;
-    }
-    .agency-location .agency { color: #e0e0e0; }
-    .agency-location .sep { color: #555555; padding: 0 6px; }
-    .agency-location .location { color: #aaaaaa; }
+    .buyer-lines .email { color: var(--cyan); }
     .status-badges {
       display: flex;
       gap: 6px;
@@ -588,12 +655,15 @@
       border: 1px solid #1e1e22;
       color: var(--green);
       font: 10px "Courier New", monospace;
-      padding: 8px 12px;
+      padding: 6px 14px;
       margin: 10px 0;
+      text-transform: uppercase;
     }
     .analysis-marker.pending {
+      background: #0a0a0c;
       color: #555555;
-      padding: 12px;
+      padding: 12px 14px;
+      text-transform: none;
     }
     .analysis-marker .workspace-inline {
       border: 1px solid var(--purple);
@@ -604,19 +674,6 @@
       margin-top: 8px;
       cursor: pointer;
     }
-    .hero-next-action,
-    .hero-buyer {
-      margin: 8px 0 10px;
-      font: 11px "Courier New", monospace;
-      color: #e0e0e0;
-      line-height: 1.5;
-    }
-    .hero-next-action .hero-label,
-    .hero-buyer .hero-label {
-      display: inline;
-      margin-right: 8px;
-    }
-    .hero-buyer .email { color: var(--cyan); }
     .details-block {
       background: #0a0a0c;
       border: 1px solid #1e1e22;
@@ -641,9 +698,8 @@
     .details-grid .detail-value { color: #e0e0e0; overflow-wrap: anywhere; }
     .desc-preview {
       color: #e8e8e8;
-      font-size: 13px;
-      font-weight: 600;
-      line-height: 1.45;
+      font: 12px "Courier New", monospace;
+      line-height: 1.6;
       margin-bottom: 8px;
     }
     .desc-preview.ai-fallback { color: #7ec8a4; }
@@ -1687,11 +1743,15 @@
           ${renderFetchSynopsis(row)}`;
       }
       const text = found.text;
-      const preview = text.length > 400 ? `${text.slice(0, 400)}...` : text;
+      const isLong = text.length > 400;
+      const preview = isLong ? `${text.slice(0, 400)}...` : text;
       const label = found.label ? `<div class="hero-label">${h(found.label)}</div>` : "";
+      const more = isLong
+        ? `<details><summary>expand full description</summary><pre class="wrap">${h(text)}</pre></details>`
+        : "";
       return `
         ${label}<div class="${h(found.klass)}">${h(preview)}</div>
-        <details><summary>expand full description</summary><pre class="wrap">${h(text)}</pre></details>`;
+        ${more}`;
     }
 
     function meaningfulValue(value, minLength = 1) {
@@ -1774,10 +1834,15 @@
     function renderAgencyLocation(row) {
       const location = locationDisplay(row);
       return `
-        <div class="agency-location">
-          <span class="agency">${val(row.agency)}</span>
-          <span class="sep">·</span>
-          <span class="location">${h(location || "Location not listed")}</span>
+        <div class="triage-grid">
+          <div class="triage-box">
+            <div class="hero-label">Agency</div>
+            <div class="triage-value">${val(row.agency)}</div>
+          </div>
+          <div class="triage-box">
+            <div class="hero-label">Place of Performance</div>
+            <div class="triage-value ${location ? "" : "muted"}">${h(location || "Location not listed")}</div>
+          </div>
         </div>`;
     }
 
@@ -1840,14 +1905,59 @@
       const name = meaningfulValue(row.buyer_name);
       const email = meaningfulValue(row.buyer_email);
       const phone = meaningfulValue(row.buyer_phone || row.phone || row.contact_phone || row.poc_phone);
-      if (!name && !email && !phone) return `<div class="hero-buyer"><span class="hero-label">Buyer</span><span class="muted">not available</span></div>`;
+      if (!name && !email && !phone) return `<div class="triage-value muted">Buyer not available</div>`;
       return `
-        <div class="hero-buyer">
-          <span class="hero-label">Buyer</span>
-          ${name ? `<span>${h(name)}</span>` : ""}
-          ${name && email ? `<span class="muted"> · </span>` : ""}
-          ${email ? `<span class="email">${h(email)}</span> ${copyButton("copy email", email)}` : ""}
-          ${phone ? `<span class="muted"> · </span><span>${h(phone)}</span> ${copyButton("copy phone", phone)}` : ""}
+        <div class="buyer-lines">
+          ${name ? `<div>${h(name)}</div>` : ""}
+          ${email ? `<div><a class="email" href="mailto:${h(email)}">${h(email)}</a> ${copyButton("copy", email)}</div>` : ""}
+          ${phone ? `<div>${h(phone)} ${copyButton("copy", phone)}</div>` : ""}
+        </div>`;
+    }
+
+    function renderSetAsideBuyerGrid(row) {
+      return `
+        <div class="triage-grid">
+          <div class="triage-box">
+            <div class="hero-label">Set-Aside</div>
+            ${renderSetAsideFact(row)}
+          </div>
+          <div class="triage-box">
+            <div class="hero-label">Buyer</div>
+            ${renderHeroBuyer(row)}
+          </div>
+        </div>`;
+    }
+
+    function renderDescriptionBox(row) {
+      const hint = !synopsisText(row) && !descriptionBodyText(row)
+        ? `<span class="shortcut-hint">S fetch synopsis</span>`
+        : "";
+      return `
+        <div class="description-box">
+          <div class="description-label-row">
+            <div class="hero-label">Description / Synopsis</div>
+            ${hint}
+          </div>
+          <div id="descriptionContent">${renderDescription(row)}</div>
+        </div>`;
+    }
+
+    function renderReadinessDocumentsGrid(row) {
+      const ready = readiness(row);
+      const badge = readinessBadge(row);
+      const helper = meaningfulValue(ready.helper || row.next_data_step || row.document_status);
+      return `
+        <div class="triage-grid">
+          <div class="triage-box">
+            <div class="hero-label">Data Readiness</div>
+            <span class="status-badge ${h(badge.klass)}">${h(badge.label)}</span>
+            ${helper ? `<div class="readiness-helper">${h(helper)}</div>` : ""}
+          </div>
+          <div class="triage-box">
+            <div class="hero-label">Documents</div>
+            ${renderChecklist(row)}
+            ${renderUpload(row)}
+          </div>
         </div>`;
     }
 
@@ -1855,11 +1965,10 @@
       return `
         <div class="triage-hero">
           ${renderUrgencyLine(row)}
-          <div class="hero-label">Description / Synopsis</div>
-          <div id="descriptionContent">${renderDescription(row)}</div>
           ${renderAgencyLocation(row)}
-          ${renderSetAsideFact(row)}
-          ${renderHeroBuyer(row)}
+          ${renderSetAsideBuyerGrid(row)}
+          ${renderDescriptionBox(row)}
+          ${renderReadinessDocumentsGrid(row)}
         </div>`;
     }
 
@@ -1869,9 +1978,9 @@
       if (normalizedCompare(summary) === normalizedCompare(snapshot.fullText || snapshot.text)) return "";
       if (!synopsisText(row) && !descriptionBodyText(row) && normalizedCompare(summary) === normalizedCompare(aiSummaryText(row))) return "";
       return `
-        <div class="section">
+        <div class="section boxed-section">
           <h3>AI / Plain-English Summary</h3>
-          <div>${h(summary)}</div>
+          <div class="ai-summary-text">${h(summary)}</div>
         </div>`;
     }
 
@@ -1879,7 +1988,7 @@
       const action = meaningfulValue(row.recommended_next_action);
       if (!action) return "";
       return `
-        <div class="section">
+        <div class="section boxed-section next-action-box">
           <h3>Recommended Next Action</h3>
           <div>${h(action)}</div>
         </div>`;
@@ -1888,23 +1997,36 @@
     function renderRequirementsSection(row) {
       const hasRequirements = meaningfulValue(row.requirements);
       const hasDisqualifiers = meaningfulValue(row.disqualifiers);
-      if (!hasRequirements && !hasDisqualifiers) {
-        return `
-          <div class="section">
-            <h3>Requirements / Disqualifiers</h3>
-            <span class="muted">No AI-extracted requirements/disqualifiers yet.</span>
-          </div>`;
-      }
+      if (!hasRequirements && !hasDisqualifiers) return "";
       return `
-        <div class="section columns">
-          <div>
+        <div class="section triage-grid intelligence-grid">
+          <div class="triage-box">
             <h3>Requirements</h3>
-            ${renderList(row.requirements)}
+            <div class="requirements-text">${renderList(row.requirements)}</div>
           </div>
-          <div>
+          <div class="triage-box">
             <h3>Disqualifiers</h3>
-            ${renderList(row.disqualifiers)}
+            <div class="disqualifiers-text">${renderList(row.disqualifiers)}</div>
           </div>
+        </div>`;
+    }
+
+    function renderDetailedChecklist(row) {
+      return `
+        <div class="section boxed-section">
+          <h3>Document Checklist</h3>
+          ${renderChecklist(row)}
+        </div>`;
+    }
+
+    function renderRelatedOutputs(row) {
+      const links = row.related_links || [];
+      if (!links.length) return "";
+      return `
+        <div class="section boxed-section">
+          <h3>Related Outputs</h3>
+          ${renderLinks(row)}
+          <div class="copy-tools"><span class="label">Copy Tools</span><span>${UEI}</span>${copyButton("copy UEI", UEI)}</div>
         </div>`;
     }
 
@@ -1946,8 +2068,8 @@
       const show = ["Intake", "Manual Review"].includes(currentStage(row)) || row.operator_status === "documents_needed";
       if (!show) return "";
       return `
-        <div class="section upload-zone">
-          <h3>Manual Upload</h3>
+        <div class="upload-zone">
+          <div class="hero-label">Manual Upload</div>
           <input type="file" id="uploadFile">
           <button class="warn" id="uploadBtn">Upload Document</button>
         </div>`;
@@ -2066,23 +2188,13 @@
       const snapshot = snapshotData(row);
       const postAi = isPostAi(row);
       const postAiBody = `
-        ${renderUpload(row)}
-        <div class="section">
-          <h3>Document Checklist</h3>
-          ${renderChecklist(row)}
-        </div>
-
         ${renderAnalysisMarker(true)}
         ${renderDisqualifier(row)}
         ${renderAiSummarySection(row, snapshot)}
         ${renderRequirementsSection(row)}
         ${renderNextActionSection(row)}
-
-        <div class="section">
-          <h3>Related Outputs</h3>
-          ${renderLinks(row)}
-          <div class="copy-tools"><span class="label">Copy Tools</span><span>${UEI}</span>${copyButton("copy UEI", UEI)}</div>
-        </div>
+        ${renderDetailedChecklist(row)}
+        ${renderRelatedOutputs(row)}
 
         <div class="section">
           <h3>Buyer / Follow-Up</h3>
@@ -2097,13 +2209,6 @@
         ${renderDetails(row)}
       `;
       const preAiBody = `
-        ${renderUpload(row)}
-
-        <div class="section">
-          <h3>Documents / Upload</h3>
-          ${renderChecklist(row)}
-        </div>
-
         ${renderAnalysisMarker(false)}
       `;
       document.getElementById("card").innerHTML = `
