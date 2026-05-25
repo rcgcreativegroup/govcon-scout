@@ -190,41 +190,62 @@
       overflow-y: auto;
       max-height: calc(100vh - 92px);
     }
-    .queue-empty { color: var(--muted); padding: 12px; }
+    .queue-empty { color: var(--muted); padding: 12px; font: 11px "Courier New", monospace; }
+    .queue-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 10px 5px; border-bottom: 1px solid #1b1b1f;
+      background: #0c0c0e; flex-shrink: 0;
+    }
+    .queue-header-label {
+      font: bold 9px "Courier New", monospace;
+      text-transform: uppercase; letter-spacing: .08em; color: #555;
+    }
+    .queue-header-count { font: 9px "Courier New", monospace; color: #444; }
+    .queue-header-count .qi-pos { color: #888; }
     .queue-item {
-      padding: 9px 10px;
-      border-bottom: 1px solid #1b1b1f;
-      border-left: 3px solid transparent;
+      padding: 7px 10px;
+      border-bottom: 1px solid #0e0e10;
+      border-left: 2px solid transparent;
+      background: #0c0c0e;
       cursor: pointer;
+      display: flex; flex-direction: column; gap: 3px;
     }
-    .queue-item.active { border-left-color: var(--green); background: #111b14; }
-    .queue-title {
-      font-size: 11px;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-bottom: 5px;
+    .queue-item:hover:not(.active) { background: #0e0e10; }
+    .queue-item.active { border-left-color: #00ff88; background: #0a150a; }
+    .qi-line1 { display: flex; align-items: flex-start; gap: 5px; min-width: 0; }
+    .qi-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
     }
-    .queue-meta { color: var(--secondary); display: flex; gap: 5px; flex-wrap: wrap; }
+    .qi-title {
+      font: 10px "Courier New", monospace; color: #999;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1;
+    }
+    .queue-item.active .qi-title { color: #fff; }
+    .qi-meta {
+      margin-left: 12px; font: 9px "Courier New", monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .qi-lane { color: #555; }
+    .qi-sep { color: #333; }
+    .qi-elig { color: #555; }
+    .qi-due-ok { color: #444; }
+    .qi-due-amber { color: #f0a500; }
+    .qi-due-red { color: #ff4444; }
+    .qi-badges { margin-left: 12px; display: flex; gap: 3px; flex-wrap: nowrap; }
+    .qi-badge {
+      font: 8px "Courier New", monospace; padding: 1px 4px;
+      border-radius: 2px; border: 1px solid; white-space: nowrap;
+    }
+    .qi-badge.purple { border-color: #9966ff55; color: #9966ff; background: #0d0a1a; }
+    .qi-badge.green  { border-color: #00ff8855; color: #00ff88; background: #041a0a; }
+    .qi-badge.amber  { border-color: #f0a50055; color: #f0a500; background: #1a1200; }
+    .qi-badge.cyan   { border-color: #4499ff55; color: #4499ff; background: #041020; }
+    .qi-badge.red    { border-color: #ff444455; color: #ff4444; background: #1a0505; }
+    .qi-badge.gray   { border-color: #33333355; color: #444; background: #0a0a0c; }
     .tag { border: 1px solid var(--border); padding: 1px 4px; color: var(--secondary); }
     .tag.high { color: var(--green); border-color: var(--green); }
     .tag.med { color: var(--amber); border-color: var(--amber); }
     .tag.low { color: var(--red); border-color: var(--red); }
-    .ws-queue-tag {
-      color: #9966ff;
-      font: 9px "Courier New", monospace;
-      border: 0;
-      background: transparent;
-      padding: 1px 2px;
-    }
-    .wl-queue-tag {
-      color: #4499ff;
-      font: 9px "Courier New", monospace;
-      border: 0;
-      background: transparent;
-      padding: 1px 2px;
-    }
     .eligibility-dot {
       width: 8px;
       height: 8px;
@@ -1327,32 +1348,172 @@
       document.getElementById("position").textContent = items.length ? `${Math.min(activeIndex + 1, items.length)} / ${items.length}` : "0 / 0";
     }
 
+    function qiDotColor(row) {
+      const eligibility = setAsideEligibility(row);
+      const hasWs = workspaceSessionIds().has(row.notice_id);
+      const stage = currentStage(row);
+      const ready = textOf(readiness(row).value);
+      const due = row.due_date;
+      let daysLeft = null;
+      if (due) {
+        const today = new Date(); today.setHours(0,0,0,0);
+        daysLeft = Math.ceil((new Date(due + "T00:00:00") - today) / 86400000);
+      }
+      const pastDue = daysLeft !== null && daysLeft < 0;
+      const closesToday = daysLeft === 0;
+      const closes1d = daysLeft === 1;
+      const closes2to7 = daysLeft !== null && daysLeft >= 2 && daysLeft <= 7;
+      const ineligible = eligibility.bucket === "ineligible_now";
+
+      if (hasWs) return "purple";
+      if (ineligible || pastDue || closesToday || closes1d) return "red";
+      if (closes2to7 || stage === "Manual Review"
+          || ready.includes("metadata only") || ready.includes("documents needed")
+          || eligibility.bucket === "watch_list") return "amber";
+      if (eligibility.bucket === "eligible_now" || eligibility.bucket === "unrestricted") return "green";
+      return "gray";
+    }
+
+    function qiEligShorthand(row) {
+      const eligibility = setAsideEligibility(row);
+      const b = eligibility.bucket;
+      if (b === "eligible_now") return "SB";
+      if (b === "unrestricted") return "Unrestricted";
+      if (b === "watch_list") return "SDVOSB future";
+      if (b === "ineligible_now") return eligibility.label + " no";
+      return "Unknown";
+    }
+
+    function qiDueLabel(row) {
+      const due = row.due_date;
+      if (!due) return { text: "No date", cls: "qi-due-ok" };
+      const today = new Date(); today.setHours(0,0,0,0);
+      const daysLeft = Math.ceil((new Date(due + "T00:00:00") - today) / 86400000);
+      if (daysLeft < 0) return { text: "Past", cls: "qi-due-red" };
+      if (daysLeft === 0) return { text: "Today", cls: "qi-due-red" };
+      if (daysLeft === 1) return { text: "1d", cls: "qi-due-red" };
+      if (daysLeft <= 7) return { text: `${daysLeft}d`, cls: "qi-due-amber" };
+      return { text: `${daysLeft}d`, cls: "qi-due-ok" };
+    }
+
+    function qiBadges(row) {
+      const MAX = 3;
+      const badges = [];
+      const eligibility = setAsideEligibility(row);
+      const hasWs = workspaceSessionIds().has(row.notice_id);
+      const stage = currentStage(row);
+      const ready = textOf(readiness(row).value);
+      const aiSummary = textOf(row.ai_summary);
+      const backfillSrc = textOf(row.artifact_backfill_source);
+      const due = row.due_date;
+      let daysLeft = null;
+      if (due) {
+        const today = new Date(); today.setHours(0,0,0,0);
+        daysLeft = Math.ceil((new Date(due + "T00:00:00") - today) / 86400000);
+      }
+      const pastDue = daysLeft !== null && daysLeft < 0;
+      const ineligible = eligibility.bucket === "ineligible_now";
+
+      // 1. Critical red exception (purple + critical)
+      if (hasWs && pastDue) badges.push({ label: "Past due", cls: "red" });
+      else if (hasWs && ineligible) badges.push({ label: "Ineligible", cls: "red" });
+
+      // 2. WS badge
+      if (hasWs && badges.length < MAX) badges.push({ label: "WS", cls: "purple" });
+
+      // 3. AI badge
+      if (badges.length < MAX) {
+        const hasAi = (aiSummary.length > 50)
+          || ["bid_no_bid","decision_report","compliance_matrix","sources_sought","sources_sought_plan"].some(k => backfillSrc.includes(k))
+          || ready.includes("ai reviewed") || ready.includes("response plan ready");
+        if (hasAi) badges.push({ label: "AI", cls: "green" });
+      }
+
+      // 4. FLAG
+      if (badges.length < MAX && isFlagged(row)) badges.push({ label: "FLAG", cls: "amber" });
+
+      // 5. WL
+      if (badges.length < MAX && isWatched(row)) badges.push({ label: "WL", cls: "cyan" });
+
+      // 6. DOCS
+      if (badges.length < MAX) {
+        const hasDocs = textOf(row.document_status).length > 5
+          || ["true","yes","1"].includes(textOf(row.local_attachments_found))
+          || ["true","yes","1"].includes(textOf(row.attachment_download_ready))
+          || ready.includes("documents ready") || ready.includes("ai review ready") || ready.includes("ai reviewed");
+        if (hasDocs) badges.push({ label: "DOCS", cls: "cyan" });
+      }
+
+      // 7. REVIEW
+      if (badges.length < MAX && stage === "Manual Review") badges.push({ label: "REVIEW", cls: "amber" });
+
+      // 8. SS
+      if (badges.length < MAX) {
+        const isSSRFI = ["sources sought","rfi","sources_sought"].some(t =>
+          textOf(row.notice_type).includes(t) || textOf(row.solicitation_type).includes(t));
+        if (isSSRFI) badges.push({ label: "SS", cls: "gray" });
+      }
+
+      // 9. META
+      if (badges.length < MAX && ready.includes("metadata only")) badges.push({ label: "META", cls: "gray" });
+
+      // 10. Fit band HIGH/MED/LOW
+      if (badges.length < MAX) {
+        const band = textOf(row.fit_band);
+        if (band.includes("high")) badges.push({ label: "HIGH", cls: "red" });
+        else if (band.includes("med")) badges.push({ label: "MED", cls: "amber" });
+        else if (band.includes("low")) badges.push({ label: "LOW", cls: "gray" });
+      }
+
+      return badges.slice(0, MAX);
+    }
+
     function renderQueue(items) {
       const queue = document.getElementById("queue");
       if (!items.length) {
-        queue.innerHTML = `<div class="queue-empty">No matching opportunities found.</div>`;
+        queue.innerHTML = `
+          <div class="queue-header">
+            <span class="queue-header-label">ACTIVE QUEUE</span>
+            <span class="queue-header-count"><span class="qi-pos">0</span> / 0</span>
+          </div>
+          <div class="queue-empty">No matching opportunities found.</div>`;
         return;
       }
-      queue.innerHTML = items.map((row, index) => {
-        const band = String(row.fit_band || "").toLowerCase();
-        const eligibility = setAsideEligibility(row);
-        const wsTag = workspaceSessionIds().has(row.notice_id) ? `<span class="ws-queue-tag">⬡ WS</span>` : "";
-        const wlTag = isWatched(row) ? `<span class="wl-queue-tag">⊕ WL</span>` : "";
-        return `
-          <div class="queue-item ${index === activeIndex ? "active" : ""}" data-index="${index}">
-            <div class="queue-title">${h(row.title || row.notice_id || "untitled")}</div>
-            <div class="queue-meta">
-              <span class="eligibility-dot ${h(eligibility.bucket)}" title="${h(eligibility.tooltip)}"></span>
-              <span class="tag" title="${h(eligibility.tooltip)}">${h(eligibility.label)}</span>
-              <span class="tag ${band}">${h(row.fit_band || "NA")}</span>
-              <span class="tag">${h(row.lane || "lane n/a")}</span>
-              <span class="tag">${h(currentStage(row))}</span>
-              <span class="tag">${h(readinessTag(row))}</span>
-              ${wlTag}
-              ${wsTag}
-            </div>
-          </div>`;
+
+      const pos = items.length ? Math.min(activeIndex + 1, items.length) : 0;
+      const headerHtml = `
+        <div class="queue-header">
+          <span class="queue-header-label">ACTIVE QUEUE</span>
+          <span class="queue-header-count"><span class="qi-pos">${pos}</span> / ${items.length}</span>
+        </div>`;
+
+      const itemsHtml = items.map((row, index) => {
+        const dotColor = qiDotColor(row);
+        const dotColors = {
+          purple: "#9966ff", red: "#ff4444", amber: "#f0a500", green: "#00ff88", gray: "#333333"
+        };
+        const dotStyle = `background:${dotColors[dotColor]};`;
+
+        const lane = row.lane || "";
+        const eligShort = qiEligShorthand(row);
+        const dueInfo = qiDueLabel(row);
+        const badges = qiBadges(row);
+        const badgesHtml = badges.map(b => `<span class="qi-badge ${b.cls}">${h(b.label)}</span>`).join("");
+
+        return `<div class="queue-item${index === activeIndex ? " active" : ""}" data-index="${index}">
+          <div class="qi-line1">
+            <span class="qi-dot" style="${dotStyle}"></span>
+            <span class="qi-title">${h(row.title || row.notice_id || "untitled")}</span>
+          </div>
+          <div class="qi-meta">
+            <span class="qi-lane">${h(lane)}</span><span class="qi-sep"> · </span><span class="qi-elig">${h(eligShort)}</span><span class="qi-sep"> · </span><span class="${h(dueInfo.cls)}">${h(dueInfo.text)}</span>
+          </div>
+          <div class="qi-badges">${badgesHtml}</div>
+        </div>`;
       }).join("");
+
+      queue.innerHTML = headerHtml + itemsHtml;
+
       document.querySelectorAll(".queue-item").forEach(item => {
         item.onclick = () => {
           clearActionResult();
@@ -2473,11 +2634,12 @@
 
     async function applyManualStageOverride(row, nextStage) {
       let result;
+      const payload = { notice_id: row.notice_id, stage: nextStage };
       try {
         result = await api("/api/set-stage", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notice_id: row.notice_id, stage: nextStage })
+          body: JSON.stringify(payload)
         });
       } catch (error) {
         statusMessage = error.message || "Stage override failed.";
@@ -2486,13 +2648,31 @@
         render();
         return;
       }
-      row.macro_stage = result.stage;
+      const updatedStage = result.stage || result.macro_stage || nextStage;
+      const updatedRow = opportunities.find(item => item.notice_id === row.notice_id) || row;
+      updatedRow.macro_stage = updatedStage;
+      updatedRow.last_operator_action = "manual_stage_override";
+      row.macro_stage = updatedStage;
       row.last_operator_action = "manual_stage_override";
       pendingStageOverride = "";
       pendingWorkflowStageOverride = "";
-      statusMessage = `Moved to ${result.stage}`;
+      statusMessage = `Moved to ${updatedStage}`;
+      setActionResult({
+        kind: "success",
+        message: `Stage moved to ${updatedStage}`,
+        fields: ["macro_stage", "last_operator_action"],
+        cardUpdated: true
+      });
       renderFilters();
-      render();
+      const items = filteredItems();
+      const visibleIndex = items.findIndex(item => item.notice_id === row.notice_id);
+      if (visibleIndex >= 0) activeIndex = visibleIndex;
+      renderCounts(items);
+      renderQueue(items);
+      renderCard(updatedRow, visibleIndex >= 0 ? items : [updatedRow]);
+      updateStickyBar(updatedRow);
+      renderWorkflowRibbon(updatedRow);
+      requestAnimationFrame(adjustLayout);
     }
 
     async function saveNote(row, type, text) {
