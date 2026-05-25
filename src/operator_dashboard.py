@@ -2626,17 +2626,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def initialize():
-    ensure_directories()
-    ensure_config_files()
-    ensure_notes_file()
-    run_local_state_builder_if_needed()
-    backup_path = backup_state_file()
-    ensure_state_schema()
-    write_json(DASHBOARD_STATE_PATH, {
-        "last_startup": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "state_backup": backup_path,
-    })
-    return backup_path
+    # Dashboard startup must remain read-only. Do not call write, backup,
+    # enrichment, or backfill helpers here; explicit operator actions own writes.
+    return ""
 
 
 def parse_args():
@@ -2681,9 +2673,7 @@ def main():
     except OSError as error:
         print(f"Could not start GovCon Scout Operator Dashboard: {error}", file=sys.stderr)
         return 1
-    backup_path = initialize()
-    if backup_path:
-        print(f"Backed up opportunity state: {backup_path}")
+    initialize()
     print(f"GovCon Scout Operator Dashboard: http://localhost:{port}")
     print("This local dashboard does not call SAM.gov or USAspending unless an operator clicks an action that wraps an existing script.")
     server.serve_forever()
