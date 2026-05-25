@@ -110,6 +110,13 @@
       font-size: 11px;
       white-space: nowrap;
     }
+    .archive-pastdue {
+      background: transparent;
+      color: #cc4444;
+      border-color: #cc4444;
+      font-size: 11px;
+      white-space: nowrap;
+    }
     .workflow {
       color: var(--secondary);
       border-bottom: 1px solid #1e1e22;
@@ -1153,6 +1160,7 @@
           `<button class="${stage === activeFilter ? "active" : ""}" data-stage="${h(stage)}">${h(stage)} <span class="tab-count">(${counts[stage] || 0})</span></button>`
         ).join("")}
         <button class="review-ineligible" id="reviewIneligible">Review Ineligible Set-Asides</button>
+        <button class="archive-pastdue" id="archivePastDue">Archive Past Due</button>
         <div class="sort-wrap">
           <span class="label">SORT</span>
           <select id="sortMode">
@@ -1181,6 +1189,8 @@
       };
       const review = document.getElementById("reviewIneligible");
       if (review) review.onclick = showIneligibleReview;
+      const archivePastDue = document.getElementById("archivePastDue");
+      if (archivePastDue) archivePastDue.onclick = showPastDueArchivePreview;
     }
 
     function countBy(predicate) {
@@ -1339,6 +1349,72 @@
       document.getElementById("closeEligibilityModal").onclick = () => modal.remove();
       modal.onclick = event => {
         if (event.target === modal) modal.remove();
+      };
+    }
+
+    async function showPastDueArchivePreview() {
+      let preview;
+      try {
+        preview = await api("/api/auto-archive-pastdue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preview: true })
+        });
+      } catch (error) {
+        flashStatus(error.message || "Past-due archive preview failed.", 2500);
+        return;
+      }
+      const existing = document.getElementById("pastDueArchiveModal");
+      if (existing) existing.remove();
+      const modal = document.createElement("div");
+      modal.id = "pastDueArchiveModal";
+      modal.className = "modal-backdrop";
+      modal.innerHTML = `
+        <div class="modal" role="dialog" aria-modal="true">
+          <h2>Auto-Archive Past Due Opportunities</h2>
+          <pre>${h([
+            "This will move all past-due opportunities to Archive.",
+            "",
+            "Excluded and protected:",
+            "- Flagged opportunities",
+            "- Watch List opportunities",
+            "- Already archived / Done / Pass",
+            "- Missing or invalid due dates",
+            "",
+            `${preview.archived_count || 0} opportunities would be archived.`,
+            "",
+            `Protected by flag: ${preview.protected_flagged || 0}`,
+            `Protected by Watch List: ${preview.protected_watch_list || 0}`,
+            `Already archived/final: ${preview.already_final || 0}`,
+            `Missing/invalid due dates: ${preview.invalid_or_missing_due_date || 0}`,
+          ].join("\n"))}</pre>
+          <button class="risk" id="confirmPastDueArchive">Confirm — Archive These</button>
+          <button id="cancelPastDueArchive">Cancel</button>
+        </div>`;
+      document.body.appendChild(modal);
+      document.getElementById("cancelPastDueArchive").onclick = () => modal.remove();
+      modal.onclick = event => {
+        if (event.target === modal) modal.remove();
+      };
+      document.getElementById("confirmPastDueArchive").onclick = async () => {
+        const button = document.getElementById("confirmPastDueArchive");
+        button.disabled = true;
+        button.textContent = "Archiving...";
+        try {
+          const result = await api("/api/auto-archive-pastdue", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ preview: false })
+          });
+          modal.remove();
+          statusMessage = `Archived ${result.archived_count || 0} past-due opportunities.`;
+          activeIndex = 0;
+          await load();
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = "Confirm — Archive These";
+          flashStatus(error.message || "Past-due archive failed.", 2500);
+        }
       };
     }
 
@@ -1763,7 +1839,7 @@
     function renderHeroBuyer(row) {
       const name = meaningfulValue(row.buyer_name);
       const email = meaningfulValue(row.buyer_email);
-      const phone = meaningfulValue(row.buyer_phone);
+      const phone = meaningfulValue(row.buyer_phone || row.phone || row.contact_phone || row.poc_phone);
       if (!name && !email && !phone) return `<div class="hero-buyer"><span class="hero-label">Buyer</span><span class="muted">not available</span></div>`;
       return `
         <div class="hero-buyer">
@@ -1771,7 +1847,7 @@
           ${name ? `<span>${h(name)}</span>` : ""}
           ${name && email ? `<span class="muted"> · </span>` : ""}
           ${email ? `<span class="email">${h(email)}</span> ${copyButton("copy email", email)}` : ""}
-          ${phone ? ` ${copyButton("copy phone", phone)}` : ""}
+          ${phone ? `<span class="muted"> · </span><span>${h(phone)}</span> ${copyButton("copy phone", phone)}` : ""}
         </div>`;
     }
 
@@ -2001,11 +2077,6 @@
         ${renderAiSummarySection(row, snapshot)}
         ${renderRequirementsSection(row)}
         ${renderNextActionSection(row)}
-
-        <div class="section">
-          <h3>Full Description</h3>
-          <div>${renderDescription(row)}</div>
-        </div>
 
         <div class="section">
           <h3>Related Outputs</h3>

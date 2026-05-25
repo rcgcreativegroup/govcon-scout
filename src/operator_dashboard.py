@@ -396,6 +396,16 @@ def backup_state_file_for_watch_toggle():
     return str(backup_path.relative_to(BASE_DIR))
 
 
+def backup_state_file_for_pastdue_archive():
+    if not OPPORTUNITY_STATE_PATH.exists():
+        return ""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = BACKUP_DIR / f"opportunity_state_before_pastdue_archive_{stamp}.csv"
+    shutil.copy2(OPPORTUNITY_STATE_PATH, backup_path)
+    return str(backup_path.relative_to(BASE_DIR))
+
+
 def run_local_state_builder_if_needed():
     if OPPORTUNITY_STATE_PATH.exists():
         return
@@ -2167,6 +2177,70 @@ def post_ai_status_payload(raw_notice_id):
     }, 200
 
 
+def parse_due_date(value):
+    text = safe_text(value)
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(text[:10], fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text[:10]).date()
+    except ValueError:
+        return None
+
+
+def auto_archive_pastdue_payload(preview=False):
+    fieldnames, rows = read_state()
+    today = datetime.now().date()
+    archived_count = 0
+    protected_flagged = 0
+    protected_watch_list = 0
+    already_final = 0
+    invalid_or_missing_due_date = 0
+    eligible_indexes = []
+
+    for index, row in enumerate(rows):
+        due = parse_due_date(row.get("due_date"))
+        if due is None:
+            invalid_or_missing_due_date += 1
+            continue
+        if due >= today:
+            continue
+        if boolish(row.get("flagged")):
+            protected_flagged += 1
+            continue
+        if boolish(row.get("watch_list")):
+            protected_watch_list += 1
+            continue
+        if safe_text(row.get("macro_stage")).lower() in {"archive", "done", "pass"}:
+            already_final += 1
+            continue
+        eligible_indexes.append(index)
+
+    backup_path = ""
+    if not preview and eligible_indexes:
+        backup_path = backup_state_file_for_pastdue_archive()
+        for index in eligible_indexes:
+            rows[index]["macro_stage"] = "Archive"
+            rows[index]["last_operator_action"] = "auto_archived_past_due"
+        write_csv_preserve(OPPORTUNITY_STATE_PATH, fieldnames, rows)
+
+    archived_count = len(eligible_indexes)
+    return {
+        "status": "ok",
+        "preview": preview,
+        "archived_count": archived_count,
+        "protected_flagged": protected_flagged,
+        "protected_watch_list": protected_watch_list,
+        "already_final": already_final,
+        "invalid_or_missing_due_date": invalid_or_missing_due_date,
+        "backup_path": backup_path,
+    }
+
+
 def save_conversation_history(notice_id, history):
     ws_path = WORKSPACE_DIR / notice_id
     ws_path.mkdir(parents=True, exist_ok=True)
@@ -2345,6 +2419,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.handle_fetch_synopsis()
             if parsed.path == "/api/extract-documents":
                 return self.handle_extract_documents()
+            if parsed.path == "/api/auto-archive-pastdue":
+                return self.handle_auto_archive_pastdue()
             if parsed.path.startswith("/api/upload/"):
                 notice_id = unquote(parsed.path.rsplit("/", 1)[-1])
                 return self.handle_upload(notice_id)
@@ -2501,6 +2577,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if action == "draft_response":
             return json_response(self, action_draft_response(notice_id))
         return json_response(self, {"error": "Unknown action"}, 404)
+
+    def handle_auto_archive_pastdue(self):
+        payload = self.read_json_body()
+        preview = boolish(payload.get("preview"))
+        return json_response(self, auto_archive_pastdue_payload(preview=preview))
 
     def handle_workspace_chat(self):
         payload = self.read_json_body()
