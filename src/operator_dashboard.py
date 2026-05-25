@@ -33,8 +33,9 @@ except ImportError:
 
 # CONFIG / PATH CONSTANTS
 BASE_DIR = Path(__file__).resolve().parent.parent
-HOST = "0.0.0.0"
+HOST = os.getenv("DASHBOARD_HOST", "127.0.0.1")
 DEFAULT_PORT = 8765
+SUBPROCESS_TIMEOUT_SECONDS = 120
 
 WEB_INDEX_PATH = BASE_DIR / "web/operator_dashboard/index.html"
 OPPORTUNITY_STATE_PATH = BASE_DIR / "data/opportunity_state.csv"
@@ -409,7 +410,12 @@ def backup_state_file_for_pastdue_archive():
 def run_local_state_builder_if_needed():
     if OPPORTUNITY_STATE_PATH.exists():
         return
-    subprocess.run([sys.executable, "src/opportunity_state.py"], cwd=BASE_DIR, check=False)
+    subprocess.run(
+        [sys.executable, "src/opportunity_state.py"],
+        cwd=BASE_DIR,
+        check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
 
 
 def read_csv(path):
@@ -1269,12 +1275,22 @@ def short_output(text, limit=3000):
 def run_backend_commands(notice_id, commands):
     summaries = []
     for command in commands:
-        result = subprocess.run(
-            command,
-            cwd=BASE_DIR,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                command,
+                cwd=BASE_DIR,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as error:
+            summaries.append({
+                "command": " ".join(command),
+                "return_code": "timeout",
+                "stdout": short_output(error.stdout),
+                "stderr": f"Command timed out after {SUBPROCESS_TIMEOUT_SECONDS} seconds.",
+            })
+            return False, summaries
         summaries.append({
             "command": " ".join(command),
             "return_code": result.returncode,
@@ -1332,12 +1348,37 @@ def run_card_field_backfill(notice_id, stage, success_prefix):
         notice_id,
         "--write",
     ]
-    result = subprocess.run(
-        command,
-        cwd=BASE_DIR,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as error:
+        error_text = f"Command timed out after {SUBPROCESS_TIMEOUT_SECONDS} seconds."
+        summary = {
+            "command": " ".join(command),
+            "return_code": "timeout",
+            "stdout": short_output(error.stdout),
+            "stderr": error_text,
+        }
+        append_note(
+            notice_id,
+            "risk_note",
+            f"Card field backfill timed out after dashboard action: {error_text}",
+            stage,
+            "dashboard_action",
+        )
+        return {
+            "status": "failed",
+            "message": f"{success_prefix} — card field backfill timed out; see logs",
+            "fields_filled": [],
+            "card_data": {},
+            "backfill_error": error_text,
+            "summary": summary,
+        }
     summary = {
         "command": " ".join(command),
         "return_code": result.returncode,
@@ -2611,8 +2652,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not path or not path.exists():
             return json_response(self, {"error": "File not found or not allowed"}, 404)
         if path.is_dir():
-            entries = sorted(item.name for item in path.iterdir())
-            return json_response(self, {"path": str(path.relative_to(BASE_DIR)), "entries": entries})
+            return json_response(self, {"error": "Directory listing is not allowed"}, 403)
         content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         body = path.read_bytes()
         self.send_response(200)
