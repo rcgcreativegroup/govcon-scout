@@ -211,6 +211,13 @@
       background: transparent;
       padding: 1px 2px;
     }
+    .wl-queue-tag {
+      color: #4499ff;
+      font: 9px "Courier New", monospace;
+      border: 0;
+      background: transparent;
+      padding: 1px 2px;
+    }
     .eligibility-dot {
       width: 8px;
       height: 8px;
@@ -497,6 +504,105 @@
       color: var(--cyan);
       background: #101012;
     }
+    .triage-hero {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 0 12px;
+      margin-bottom: 12px;
+    }
+    .urgency-line {
+      font: bold 13px "Courier New", monospace;
+      margin: 10px 0 12px;
+    }
+    .urgency-line.danger { color: var(--red); }
+    .urgency-line.warn { color: var(--amber); }
+    .urgency-line.good { color: var(--green); }
+    .urgency-line.muted { color: var(--secondary); }
+    .hero-label {
+      color: #8fbcd4;
+      font: 700 10px "Courier New", monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .work-snapshot {
+      margin: 8px 0 12px;
+      color: #e0e0e0;
+      font: 12px "Courier New", monospace;
+      line-height: 1.6;
+    }
+    .work-snapshot.fallback,
+    .work-snapshot.missing { color: var(--amber); }
+    .snapshot-more summary {
+      color: var(--cyan);
+      cursor: pointer;
+      display: inline;
+      font-size: 11px;
+    }
+    .snapshot-more pre {
+      color: #e0e0e0;
+      font: 12px "Courier New", monospace;
+      white-space: pre-wrap;
+      margin: 8px 0 0;
+    }
+    .agency-location {
+      margin: 6px 0 10px;
+      font: 12px "Courier New", monospace;
+    }
+    .agency-location .agency { color: #e0e0e0; }
+    .agency-location .sep { color: #555555; padding: 0 6px; }
+    .agency-location .location { color: #aaaaaa; }
+    .status-badges {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+    }
+    .status-badge {
+      font: 10px "Courier New", monospace;
+      padding: 3px 8px;
+      border-radius: 3px;
+      border: 1px solid;
+      background: transparent;
+    }
+    .status-badge.green { color: var(--green); border-color: var(--green); }
+    .status-badge.gray { color: #888888; border-color: #555555; }
+    .status-badge.amber { color: var(--amber); border-color: var(--amber); }
+    .status-badge.red { color: var(--red); border-color: var(--red); }
+    .status-badge.cyan { color: var(--cyan); border-color: var(--cyan); }
+    .hero-next-action,
+    .hero-buyer {
+      margin: 8px 0 10px;
+      font: 11px "Courier New", monospace;
+      color: #e0e0e0;
+      line-height: 1.5;
+    }
+    .hero-next-action .hero-label,
+    .hero-buyer .hero-label {
+      display: inline;
+      margin-right: 8px;
+    }
+    .hero-buyer .email { color: var(--cyan); }
+    .details-block {
+      background: #0a0a0c;
+      border: 1px solid #1e1e22;
+      padding: 8px 12px;
+    }
+    .details-block summary {
+      color: #8fbcd4;
+      cursor: pointer;
+      font: 700 10px "Courier New", monospace;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .details-block summary span { color: var(--cyan); font-weight: 400; letter-spacing: 0; margin-left: 6px; }
+    .details-grid {
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      gap: 6px 10px;
+      margin-top: 10px;
+      font: 11px "Courier New", monospace;
+    }
+    .details-grid .detail-label { color: #8fbcd4; text-transform: uppercase; }
+    .details-grid .detail-value { color: #e0e0e0; overflow-wrap: anywhere; }
     .desc-preview {
       color: #e8e8e8;
       font-size: 13px;
@@ -504,6 +610,8 @@
       line-height: 1.45;
       margin-bottom: 8px;
     }
+    .desc-preview.ai-fallback { color: #7ec8a4; }
+    .desc-preview.partial-fallback { color: #888888; }
     .missing-desc {
       border: 1px solid var(--amber);
       background: var(--amber-bg);
@@ -845,6 +953,8 @@
     let pendingStageOverride = "";
     let pendingWorkflowStageOverride = "";
     let workflowStageConfirmLeft = 12;
+    const autoSynopsisAttemptedNoticeIds = new Set();
+    let autoSynopsisTimer = null;
 
     const h = value => String(value ?? "").replace(/[&<>"']/g, ch => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -859,6 +969,7 @@
       return !!text && !["not available", "none", "null", "n/a", "na"].includes(text);
     };
     const isFlagged = row => ["true", "yes", "y", "1", "flagged"].includes(textOf(row.flagged).trim());
+    const isWatched = row => ["true", "yes", "y", "1"].includes(textOf(row.watch_list).trim());
     const containsAny = (value, terms) => terms.some(term => textOf(value).includes(term));
     const setAsideText = row => [row.set_aside, row.set_aside_type, row.set_aside_description].filter(hasMeaningful).join(" ");
     const setAsideEligibility = row => {
@@ -946,7 +1057,7 @@
       const readiness = row.data_readiness || {};
       return [
         row.notice_id, row.title, row.agency, row.source, row.lane, row.naics,
-        row.set_aside, readiness.value, readiness.tag, readiness.helper,
+        row.set_aside, row.watch_list, readiness.value, readiness.tag, readiness.helper,
         row.macro_stage, row.current_stage, row.operator_status, row.triage_status,
         row.recommended_next_action, row.description, notes
       ].join(" ").toLowerCase();
@@ -958,7 +1069,7 @@
         const sourceAvailable = !!sourceUrl(row);
         if (name === "All") return true;
         if (name === "Active") return activeReview(row);
-        if (name === "Watch List") return ["ineligible_now", "watch_list"].includes(setAsideEligibility(row).bucket);
+        if (name === "Watch List") return isWatched(row);
         if (name === "Move Forward") {
           if (!notArchivedUnlessFlagged(row)) return false;
           return textOf(row.operator_status).includes("move_forward");
@@ -1129,6 +1240,7 @@
         const band = String(row.fit_band || "").toLowerCase();
         const eligibility = setAsideEligibility(row);
         const wsTag = workspaceSessionIds().has(row.notice_id) ? `<span class="ws-queue-tag">⬡ WS</span>` : "";
+        const wlTag = isWatched(row) ? `<span class="wl-queue-tag">⊕ WL</span>` : "";
         return `
           <div class="queue-item ${index === activeIndex ? "active" : ""}" data-index="${index}">
             <div class="queue-title">${h(row.title || row.notice_id || "untitled")}</div>
@@ -1139,6 +1251,7 @@
               <span class="tag">${h(row.lane || "lane n/a")}</span>
               <span class="tag">${h(currentStage(row))}</span>
               <span class="tag">${h(readinessTag(row))}</span>
+              ${wlTag}
               ${wsTag}
             </div>
           </div>`;
@@ -1174,7 +1287,7 @@
       lines.push("");
       lines.push(`Flagged — protected from exclusion: ${protectedCount}`);
       lines.push("");
-      lines.push("These opportunities are available in the Watch List tab.");
+      lines.push("Use W on a card to deliberately add it to the Watch List.");
       lines.push("No changes have been made.");
       return lines.join("\n");
     }
@@ -1351,7 +1464,7 @@
     }
 
     function descriptionText(row) {
-      const values = [row.description, row.full_description, row.synopsis, row.notice_description, row.body, row.summary];
+      const values = [row.synopsis, row.description, row.full_description, row.notice_description, row.body, row.summary];
       for (const value of values) {
         const text = String(value || "").trim();
         if (!text) continue;
@@ -1361,17 +1474,33 @@
       return "";
     }
 
+    function synopsisText(row) {
+      return meaningfulValue(row.synopsis, 51);
+    }
+
+    function descriptionBodyText(row) {
+      return meaningfulValue(row.description, 51);
+    }
+
+    function aiSummaryText(row) {
+      return meaningfulValue(row.ai_summary, 51);
+    }
+
+    function fullDescriptionText(row) {
+      return meaningfulValue(row.full_description, 1);
+    }
+
     function textEmpty(value) {
       const text = String(value || "").trim().toLowerCase();
       return !text || ["not available", "none", "null", "n/a", "na", "yes", "no"].includes(text);
     }
 
-    function canFetchSynopsis(row) {
+    function canFetchSynopsis(row, requireMissing = true) {
       const blockedTerms = ["pass", "archive", "ignore", "duplicate", "parked"];
       const statusText = [row.operator_status, row.triage_status, row.current_stage].join(" ").toLowerCase();
       const blocked = blockedTerms.some(term => statusText.includes(term));
-      return textEmpty(row.synopsis)
-        && textEmpty(row.description)
+      const missing = textEmpty(row.synopsis) && textEmpty(row.description);
+      return (!requireMissing || missing)
         && !!sourceUrl(row)
         && !["Archive", "Done"].includes(currentStage(row))
         && !blocked
@@ -1379,31 +1508,241 @@
     }
 
     function renderFetchSynopsis(row) {
-      if (!canFetchSynopsis(row)) return "";
+      if (!canFetchSynopsis(row, false)) return "";
       return `
         <button class="fetch-synopsis-btn" id="fetchSynopsisBtn" data-notice-id="${h(row.notice_id)}">⟳ Fetch Synopsis</button>
         <div class="fetch-synopsis-status" id="fetchSynopsisStatus"></div>`;
     }
 
     function renderDescription(row) {
-      const text = descriptionText(row).trim();
-      if (!text) {
+      if (row._autoSynopsisStatus === "fetching") {
+        return `<div class="muted" style="font:10px 'Courier New',monospace">⟳ Fetching synopsis...</div>`;
+      }
+      const sources = [
+        { label: "", text: synopsisText(row), klass: "desc-preview" },
+        { label: "", text: descriptionBodyText(row), klass: "desc-preview" },
+        { label: "AI SUMMARY", text: aiSummaryText(row), klass: "desc-preview ai-fallback" },
+        { label: "PARTIAL DESCRIPTION", text: fullDescriptionText(row), klass: "desc-preview partial-fallback" },
+      ];
+      const found = sources.find(item => item.text);
+      if (!found) {
         const ready = readiness(row);
         const message = ["Metadata Only", "Documents Needed"].includes(ready.value)
-          ? "⚠ No synopsis or local documents available yet. Use the source link above, Prepare SAM Docs, or upload documents manually before AI review."
-          : "⚠ No description available — use source link above to view on SAM.gov/source portal or upload documents manually.";
+          ? "⚠ No description available — fetch synopsis or upload documents"
+          : "⚠ No description available — fetch synopsis or upload documents";
+        const retry = row._autoSynopsisStatus === "empty"
+          ? `<div class="muted" style="font:10px 'Courier New',monospace;margin-top:6px">SAM returned no synopsis — use S to retry or upload documents</div>`
+          : "";
         return `
           <div class="missing-desc">${h(message)}</div>
+          ${retry}
           ${renderFetchSynopsis(row)}
           <div class="section">
             <h3>Helpful Existing Links</h3>
             ${renderLinks(row)}
           </div>`;
       }
+      const text = found.text;
       const preview = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+      const label = found.label ? `<div class="hero-label">${h(found.label)}</div>` : "";
       return `
-        <div class="desc-preview">${h(preview)}</div>
+        ${label}<div class="${h(found.klass)}">${h(preview)}</div>
         <details><summary>expand full description</summary><pre class="wrap">${h(text)}</pre></details>`;
+    }
+
+    function meaningfulValue(value, minLength = 1) {
+      const text = String(value || "").trim();
+      if (!text || ["no", "yes", "none", "n/a", "na", "not available", "null"].includes(text.toLowerCase())) return "";
+      return text.length >= minLength ? text : "";
+    }
+
+    function normalizedCompare(value) {
+      return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+    }
+
+    function formatDateShort(date) {
+      return date.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
+    }
+
+    function renderUrgencyLine(row) {
+      const raw = meaningfulValue(row.due_date);
+      if (!raw) return `<div class="urgency-line warn">⚠ No deadline found — verify on source</div>`;
+      const due = new Date(`${raw.slice(0, 10)}T00:00:00`);
+      if (Number.isNaN(due.getTime())) {
+        return `<div class="urgency-line warn">⚠ Deadline needs verification · ${h(raw)}</div>`;
+      }
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const days = Math.ceil((due - today) / 86400000);
+      const time = meaningfulValue(row.deadline_time);
+      const tz = meaningfulValue(row.deadline_tz);
+      const closes = `Closes ${formatDateShort(due)}${time ? `, ${time}${tz ? ` ${tz}` : ""}` : ""}`;
+      if (days < 0) return `<div class="urgency-line danger">✕ Past due · Closed ${formatDateShort(due)}</div>`;
+      if (days <= 3) return `<div class="urgency-line danger">⚠ ${days} day${days === 1 ? "" : "s"} remaining · ${h(closes)}</div>`;
+      if (days <= 7) return `<div class="urgency-line warn">⚠ ${days} days remaining · ${h(closes)}</div>`;
+      if (days <= 14) return `<div class="urgency-line good">${days} days remaining · ${h(closes)}</div>`;
+      return `<div class="urgency-line muted">${days} days remaining · ${h(closes)}</div>`;
+    }
+
+    function snapshotData(row) {
+      const candidates = [
+        { source: "synopsis", text: meaningfulValue(row.synopsis, 51), klass: "" },
+        { source: "ai_summary", text: meaningfulValue(row.ai_summary, 51), klass: "" },
+        { source: "description", text: meaningfulValue(row.description || row.full_description, 1), klass: "fallback" },
+      ];
+      const found = candidates.find(item => item.text);
+      if (!found) {
+        return {
+          text: "⚠ No description available — fetch synopsis or upload documents to get a work summary",
+          fullText: "",
+          source: "missing",
+          klass: "missing",
+          truncated: false,
+        };
+      }
+      const fullText = found.text;
+      return {
+        ...found,
+        fullText,
+        text: fullText.length > 400 ? `${fullText.slice(0, 400).trim()}...` : fullText,
+        truncated: fullText.length > 400,
+      };
+    }
+
+    function renderWorkSnapshot(snapshot) {
+      const more = snapshot.truncated
+        ? `<details class="snapshot-more"><summary>[expand]</summary><pre>${h(snapshot.fullText)}</pre></details>`
+        : "";
+      return `
+        <div class="hero-label">Work Snapshot</div>
+        <div class="work-snapshot ${h(snapshot.klass)}">${h(snapshot.text)} ${more}</div>`;
+    }
+
+    function locationDisplay(row) {
+      const city = meaningfulValue(row.place_of_performance_city);
+      const state = meaningfulValue(row.place_of_performance_state);
+      if (city && state) return `${city}, ${state}`;
+      if (city) return city;
+      if (state) return state;
+      return meaningfulValue(row.place_of_performance) || "";
+    }
+
+    function renderAgencyLocation(row) {
+      const location = locationDisplay(row);
+      return `
+        <div class="agency-location">
+          <span class="agency">${val(row.agency)}</span>
+          <span class="sep">·</span>
+          <span class="location">${h(location || "Location not listed")}</span>
+        </div>`;
+    }
+
+    function eligibilityBadge(row) {
+      const raw = setAsideText(row);
+      if (!raw) return { label: "Set-aside Unknown ⚠", klass: "amber" };
+      const eligibility = setAsideEligibility(row);
+      if (eligibility.bucket === "eligible_now") return { label: "Small Business ✓", klass: "green" };
+      if (eligibility.bucket === "watch_list") return { label: "SDVOSB — Future Path", klass: "amber" };
+      if (eligibility.bucket === "ineligible_now") return { label: `${eligibility.label} — Not Eligible`, klass: "red" };
+      return { label: "Unrestricted", klass: "gray" };
+    }
+
+    function readinessBadge(row) {
+      const ready = readiness(row);
+      const value = ready.value || "Metadata Only";
+      const map = {
+        "Metadata Only": ["Metadata Only · Fetch Synopsis", "amber"],
+        "Documents Needed": ["Docs Needed · Prepare SAM Docs", "amber"],
+        "Documents Ready": ["Docs Ready · Run AI Review", "cyan"],
+        "AI Review Ready": ["AI Review Ready · Run Now", "cyan"],
+        "AI Reviewed": ["AI Reviewed ✓", "green"],
+        "Response Plan Ready": ["Response Plan Ready ✓", "green"],
+        "Manual Review Needed": ["Manual Review Needed", "amber"],
+      };
+      const mapped = map[value] || [value, ready.style || "gray"];
+      if (mapped[1] === "muted") mapped[1] = "gray";
+      return { label: mapped[0], klass: mapped[1] };
+    }
+
+    function hasDecisionArtifact(row) {
+      return (row.related_links || []).some(link => {
+        const text = `${link.label || ""} ${link.path || ""}`.toLowerCase();
+        return text.includes("decision") || text.includes("bid_no_bid") || text.includes("bid/no-bid");
+      });
+    }
+
+    function statusBadges(row) {
+      const badges = [eligibilityBadge(row), readinessBadge(row)];
+      if (hasDecisionArtifact(row)) badges.push({ label: "Decision Report ✓", klass: "green" });
+      if (isFlagged(row)) badges.push({ label: "⚑ Flagged", klass: "amber" });
+      else if (isWatched(row)) badges.push({ label: "⊕ Watch List", klass: "cyan" });
+      return badges.slice(0, 4).map(badge => `<span class="status-badge ${h(badge.klass)}">${h(badge.label)}</span>`).join("");
+    }
+
+    function renderHeroNextAction(row) {
+      const action = meaningfulValue(row.recommended_next_action);
+      if (!action) return "";
+      return `<div class="hero-next-action"><span class="hero-label">Next Action</span>${h(action)}</div>`;
+    }
+
+    function renderHeroBuyer(row) {
+      const name = meaningfulValue(row.buyer_name);
+      const email = meaningfulValue(row.buyer_email);
+      const phone = meaningfulValue(row.buyer_phone);
+      if (!name && !email && !phone) return `<div class="hero-buyer"><span class="hero-label">Buyer</span><span class="muted">not available</span></div>`;
+      return `
+        <div class="hero-buyer">
+          <span class="hero-label">Buyer</span>
+          ${name ? `<span>${h(name)}</span>` : ""}
+          ${name && email ? `<span class="muted"> · </span>` : ""}
+          ${email ? `<span class="email">${h(email)}</span> ${copyButton("copy email", email)}` : ""}
+          ${phone ? ` ${copyButton("copy phone", phone)}` : ""}
+        </div>`;
+    }
+
+    function renderTriageHero(row, snapshot) {
+      return `
+        <div class="triage-hero">
+          ${renderUrgencyLine(row)}
+          ${renderWorkSnapshot(snapshot)}
+          ${renderAgencyLocation(row)}
+          <div class="status-badges">${statusBadges(row)}</div>
+          ${renderHeroNextAction(row)}
+          ${renderHeroBuyer(row)}
+        </div>`;
+    }
+
+    function renderAiSummarySection(row, snapshot) {
+      const summary = meaningfulValue(row.ai_summary || row.recommended_next_action);
+      if (!summary) return "";
+      if (normalizedCompare(summary) === normalizedCompare(snapshot.fullText || snapshot.text)) return "";
+      if (!synopsisText(row) && !descriptionBodyText(row) && normalizedCompare(summary) === normalizedCompare(aiSummaryText(row))) return "";
+      return `
+        <div class="section">
+          <h3>AI / Plain-English Summary</h3>
+          <div>${h(summary)}</div>
+        </div>`;
+    }
+
+    function renderDetails(row) {
+      const url = sourceUrl(row);
+      const sourceLink = url ? `<a href="${h(url)}" target="_blank" rel="noopener">${h(url)}</a>` : `<span class="muted">not available</span>`;
+      return `
+        <div class="section">
+          <details class="details-block">
+            <summary>Details <span>[show details]</span></summary>
+            <div class="details-grid">
+              <div class="detail-label">Notice ID</div><div class="detail-value">${val(noticeId(row))} ${copyButton("copy", row.notice_id)}</div>
+              <div class="detail-label">NAICS / PSC</div><div class="detail-value">${val(row.naics)} / ${val(row.psc)} ${copyButton("copy NAICS", row.naics)}</div>
+              <div class="detail-label">Lane</div><div class="detail-value">${val(row.lane)}</div>
+              <div class="detail-label">Operator Status</div><div class="detail-value">${val(row.operator_status)}</div>
+              <div class="detail-label">Source</div><div class="detail-value">${val(row.source)}</div>
+              <div class="detail-label">Source URL</div><div class="detail-value">${sourceLink}</div>
+              <div class="detail-label">Set-aside raw</div><div class="detail-value">${val(row.set_aside)}</div>
+              <div class="detail-label">Fit Score</div><div class="detail-value">${val(row.fit_score)}</div>
+            </div>
+          </details>
+        </div>`;
     }
 
     function renderUpload(row) {
@@ -1527,6 +1866,7 @@
         document.getElementById("card").innerHTML = `<div class="muted">No matching opportunities found.</div>`;
         return;
       }
+      const snapshot = snapshotData(row);
       document.getElementById("card").innerHTML = `
         <div class="card-header">
           <div>
@@ -1540,26 +1880,10 @@
           </div>
         </div>
 
-        <div class="meta-grid">
-          <div class="meta"><span class="label">Agency</span><span class="value">${val(row.agency)}</span></div>
-          <div class="meta"><span class="label">Notice / Lead ID</span><span class="value">${val(noticeId(row))}</span>${copyButton("copy", row.notice_id)}</div>
-          <div class="meta"><span class="label">Due</span><span class="value">${countdown(row)}</span></div>
-          <div class="meta"><span class="label">NAICS / Lane</span><span class="value">${val(row.naics)} / ${val(row.lane)}</span>${copyButton("copy NAICS", row.naics)}</div>
-          <div class="meta"><span class="label">Place of Performance</span><span class="value">${val(row.place_of_performance)}</span></div>
-          <div class="meta"><span class="label">Set-Aside</span><span class="value">${renderSetAside(row.set_aside)}</span></div>
-          <div class="meta"><span class="label">Data Readiness</span><span class="value">${renderReadiness(row)}</span></div>
-          <div class="meta"><span class="label">Buyer Email</span><span class="value">${val(row.buyer_email)}</span>${copyButton("copy email", row.buyer_email)}</div>
-          <div class="meta"><span class="label">Operator Status</span><span class="value">${val(row.operator_status)}</span></div>
-          <div class="meta"><span class="label">Recommended Next Action</span><span class="value">${val(row.recommended_next_action)}</span></div>
-        </div>
-
-        ${renderRibbon(currentStage(row))}
+        ${renderTriageHero(row, snapshot)}
         ${renderDisqualifier(row)}
 
-        <div class="section">
-          <h3>AI / Plain-English Summary</h3>
-          <div>${val(row.ai_summary || row.recommended_next_action)}</div>
-        </div>
+        ${renderAiSummarySection(row, snapshot)}
 
         <div class="section columns">
           <div>
@@ -1603,6 +1927,8 @@
           <div class="copy-tools"><span class="label">Copy Tools</span><span>${UEI}</span>${copyButton("copy UEI", UEI)}</div>
         </div>
 
+        ${renderDetails(row)}
+
         ${renderNotes(row)}
 
         <div class="nav-row">
@@ -1610,7 +1936,7 @@
           <span class="subtle">${activeIndex + 1} / ${items.length}</span>
           <button id="nextBtn">Next</button>
         </div>
-        <div class="keyboard-legend">J next · K prev · N pass · H hold · U pursue · S synopsis · / search</div>
+        <div class="keyboard-legend">J next · K prev · N pass · H hold · U pursue · S synopsis · W watch list · / search</div>
       `;
       wireCardEvents(row, items);
     }
@@ -1628,14 +1954,25 @@
       }, ms);
     }
 
-    async function fetchSynopsis(row) {
+    async function fetchSynopsis(row, options = {}) {
+      const manual = !!options.manual;
       const button = document.getElementById("fetchSynopsisBtn");
       const status = document.getElementById("fetchSynopsisStatus");
-      if (!button || !status) return;
-      button.disabled = true;
-      button.textContent = "⟳ Fetching...";
-      status.className = "fetch-synopsis-status";
-      status.textContent = "";
+      if (!sourceUrl(row) || !row.notice_id) {
+        if (manual) flashStatus("No source URL — cannot fetch synopsis");
+        return;
+      }
+      if (button) {
+        button.disabled = true;
+        button.textContent = "⟳ Fetching...";
+      }
+      if (status) {
+        status.className = "fetch-synopsis-status";
+        status.textContent = "";
+      }
+      row._autoSynopsisStatus = "fetching";
+      const container = document.getElementById("descriptionContent");
+      if (container) container.innerHTML = renderDescription(row);
       try {
         const result = await api("/api/fetch-synopsis", {
           method: "POST",
@@ -1645,51 +1982,81 @@
         if (result.status === "ok" && result.synopsis) {
           row.description = result.synopsis;
           row.synopsis = result.synopsis;
-          const container = document.getElementById("descriptionContent");
-          if (container) container.innerHTML = renderDescription(row);
-          setActionResult({
-            kind: "success",
-            message: "Synopsis loaded from SAM API",
-            fields: ["synopsis", "description"],
-            cardUpdated: true
-          });
+          row._autoSynopsisStatus = "";
+          const currentItems = filteredItems();
+          if (currentItems[activeIndex]?.notice_id === row.notice_id) {
+            renderCard(row, currentItems);
+          }
+          if (manual) {
+            setActionResult({
+              kind: "success",
+              message: "Synopsis loaded from SAM API",
+              fields: ["synopsis", "description"],
+              cardUpdated: true
+            });
+          }
           return;
         }
         if (result.status === "empty") {
-          status.textContent = "SAM returned no description for this notice — try uploading documents manually or use the source link above";
+          row._autoSynopsisStatus = "empty";
+          if (container) container.innerHTML = renderDescription(row);
+          if (status) status.textContent = "SAM returned no description for this notice — try uploading documents manually or use the source link above";
+          if (manual) {
+            setActionResult({
+              kind: "success",
+              message: "SAM returned no description for this notice — try uploading documents manually or use the source link above",
+              fields: [],
+              cardUpdated: false
+            });
+          }
+          if (button) {
+            button.disabled = false;
+            button.textContent = "⟳ Fetch Synopsis";
+          }
+          return;
+        }
+        row._autoSynopsisStatus = "";
+        const errorMessage = result.message && result.message.includes("SAM API key")
+          ? "SAM API key not configured — check .env file"
+          : "API error — check terminal output and try again";
+        if (status) {
+          status.className = "fetch-synopsis-status error";
+          status.textContent = errorMessage;
+        }
+        if (manual) {
           setActionResult({
-            kind: "success",
-            message: "SAM returned no description for this notice — try uploading documents manually or use the source link above",
+            kind: "error",
+            message: errorMessage,
             fields: [],
             cardUpdated: false
           });
+        } else {
+          console.warn("Auto synopsis fetch failed", row.notice_id, result.message || result.status);
+        }
+        if (button) {
           button.disabled = false;
           button.textContent = "⟳ Fetch Synopsis";
-          return;
         }
-        status.className = "fetch-synopsis-status error";
-        status.textContent = result.message && result.message.includes("SAM API key")
-          ? "SAM API key not configured — check .env file"
-          : "API error — check terminal output and try again";
-        setActionResult({
-          kind: "error",
-          message: status.textContent,
-          fields: [],
-          cardUpdated: false
-        });
-        button.disabled = false;
-        button.textContent = "⟳ Fetch Synopsis";
       } catch (error) {
-        status.className = "fetch-synopsis-status error";
-        status.textContent = "API error — check terminal output and try again";
-        setActionResult({
-          kind: "error",
-          message: "API error — check terminal output and try again",
-          fields: [],
-          cardUpdated: false
-        });
-        button.disabled = false;
-        button.textContent = "⟳ Fetch Synopsis";
+        row._autoSynopsisStatus = "";
+        if (status) {
+          status.className = "fetch-synopsis-status error";
+          status.textContent = "API error — check terminal output and try again";
+        }
+        if (manual) {
+          setActionResult({
+            kind: "error",
+            message: "API error — check terminal output and try again",
+            fields: [],
+            cardUpdated: false
+          });
+        } else {
+          console.warn("Auto synopsis fetch failed", row.notice_id, error);
+        }
+        if (button) {
+          button.disabled = false;
+          button.textContent = "⟳ Fetch Synopsis";
+        }
       }
     }
 
@@ -1745,7 +2112,30 @@
       renderCard(items[activeIndex], items);
       updateStickyBar(items[activeIndex]);
       renderWorkflowRibbon(items[activeIndex]);
+      scheduleAutoSynopsisFetch(items[activeIndex]);
       requestAnimationFrame(adjustLayout);
+    }
+
+    function shouldAutoFetchSynopsis(row) {
+      if (!row || !row.notice_id || autoSynopsisAttemptedNoticeIds.has(row.notice_id)) return false;
+      if (!canFetchSynopsis(row, true)) return false;
+      if (["Archive", "Done", "Pass", "Ready to Submit", "Execution"].includes(currentStage(row))) return false;
+      return true;
+    }
+
+    function scheduleAutoSynopsisFetch(row) {
+      if (autoSynopsisTimer) {
+        clearTimeout(autoSynopsisTimer);
+        autoSynopsisTimer = null;
+      }
+      if (!shouldAutoFetchSynopsis(row)) return;
+      const noticeIdForTimer = row.notice_id;
+      autoSynopsisTimer = setTimeout(() => {
+        const current = filteredItems()[activeIndex];
+        if (!current || current.notice_id !== noticeIdForTimer || !shouldAutoFetchSynopsis(current)) return;
+        autoSynopsisAttemptedNoticeIds.add(noticeIdForTimer);
+        fetchSynopsis(current, { manual: false });
+      }, 500);
     }
 
     async function updateStage(row, stage, noteType, noteText, operatorStatus = "", lastAction = "") {
@@ -1942,19 +2332,38 @@
       render();
     }
 
+    async function toggleWatch(row) {
+      if (!row.notice_id) {
+        flashStatus("Missing notice_id — cannot update Watch List");
+        return;
+      }
+      const watchValue = !isWatched(row);
+      try {
+        const result = await api("/api/watch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notice_id: row.notice_id, watch_list: watchValue })
+        });
+        row.watch_list = result.watch_list ? "true" : "";
+        statusMessage = result.watch_list ? "⊕ Added to Watch List" : "⊖ Removed from Watch List";
+        renderFilters();
+        render();
+      } catch (error) {
+        flashStatus(error.message || "Watch List update failed");
+      }
+    }
+
     function shortcutFetchSynopsis(row) {
       const button = document.getElementById("fetchSynopsisBtn");
       if (button) {
-        button.click();
-        return;
-      }
-      if (descriptionText(row).trim()) {
-        flashStatus("Synopsis already loaded");
+        fetchSynopsis(row, { manual: true });
         return;
       }
       if (!sourceUrl(row)) {
         flashStatus("No source URL — cannot fetch synopsis");
+        return;
       }
+      fetchSynopsis(row, { manual: true });
     }
 
     function wireCardEvents(row, items) {
@@ -1986,7 +2395,14 @@
       const stageConfirm = document.getElementById("stageConfirmBtn");
       if (stageConfirm) stageConfirm.onclick = () => confirmStageOverride(row);
       const fetchButton = document.getElementById("fetchSynopsisBtn");
-      if (fetchButton) fetchButton.onclick = () => fetchSynopsis(row);
+      if (fetchButton) fetchButton.onclick = () => fetchSynopsis(row, { manual: true });
+      const details = document.querySelector(".details-block");
+      if (details) {
+        details.ontoggle = () => {
+          const label = details.querySelector("summary span");
+          if (label) label.textContent = details.open ? "[hide details]" : "[show details]";
+        };
+      }
       const prev = document.getElementById("prevBtn");
       const next = document.getElementById("nextBtn");
       if (prev) prev.onclick = () => { clearActionResult(); pendingStageOverride = ""; pendingWorkflowStageOverride = ""; activeIndex = Math.max(0, activeIndex - 1); render(); };
@@ -2061,6 +2477,8 @@
         handleButton(row, "PASS");
       } else if (event.key.toLowerCase() === "h") {
         toggleHold(row);
+      } else if (event.key.toLowerCase() === "w") {
+        toggleWatch(row);
       } else if (event.key.toLowerCase() === "u" && currentStage(row) === "Triage") {
         handleButton(row, "YES — Intake Docs");
       } else if (event.key.toLowerCase() === "s") {

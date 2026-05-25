@@ -103,6 +103,7 @@ DASHBOARD_COLUMNS = [
     "recommended_next_action",
     "last_operator_action",
     "operator_status",
+    "watch_list",
     "last_updated",
 ]
 
@@ -219,6 +220,17 @@ def safe_text(value):
     if value is None:
         return ""
     return str(value).strip()
+
+
+def redact_sensitive(value):
+    text = safe_text(value)
+    text = re.sub(r"([?&]api_key=)[^&\s)]+", r"\1[REDACTED]", text)
+    text = re.sub(r"SAM-[A-Za-z0-9-]+", "SAM-[REDACTED]", text)
+    return text
+
+
+def boolish(value):
+    return safe_text(value).lower() in {"true", "1", "yes", "y"}
 
 
 def json_response(handler, payload, status=200):
@@ -364,6 +376,26 @@ def backup_state_file_for_stage_override():
     return str(backup_path.relative_to(BASE_DIR))
 
 
+def backup_state_file_for_watch_column():
+    if not OPPORTUNITY_STATE_PATH.exists():
+        return ""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = BACKUP_DIR / f"opportunity_state_before_watch_list_column_{stamp}.csv"
+    shutil.copy2(OPPORTUNITY_STATE_PATH, backup_path)
+    return str(backup_path.relative_to(BASE_DIR))
+
+
+def backup_state_file_for_watch_toggle():
+    if not OPPORTUNITY_STATE_PATH.exists():
+        return ""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = BACKUP_DIR / f"opportunity_state_before_watch_toggle_{stamp}.csv"
+    shutil.copy2(OPPORTUNITY_STATE_PATH, backup_path)
+    return str(backup_path.relative_to(BASE_DIR))
+
+
 def run_local_state_builder_if_needed():
     if OPPORTUNITY_STATE_PATH.exists():
         return
@@ -436,9 +468,15 @@ def valid_synopsis_text(value):
     if text.lower() in {"yes", "no", "true", "false", "n/a", "na", "null", "none", "not available"}:
         return ""
     meaningful = re.sub(r"[^A-Za-z0-9]+", "", text)
-    if len(meaningful) < 30:
+    if len(meaningful) < 50:
         return ""
     return text
+
+
+def extract_detail_description_safe(raw_detail):
+    if not isinstance(raw_detail, dict):
+        return ""
+    return extract_description_from_detail(raw_detail)
 
 
 def first_description(*rows_and_fields):
@@ -823,6 +861,47 @@ def set_stage_override(notice_id, stage):
         "notice_id": notice_id,
         "stage": stage,
         "backup_path": backup_path,
+    }
+
+
+def set_watch_list(notice_id, watch_value):
+    notice_id = safe_text(notice_id)
+    if not notice_id:
+        return {"status": "error", "message": "notice_id is required"}
+
+    fieldnames, rows = read_state()
+    schema_backup = ""
+    if "watch_list" not in fieldnames:
+        schema_backup = backup_state_file_for_watch_column()
+        fieldnames.append("watch_list")
+        for row in rows:
+            row["watch_list"] = ""
+
+    watch_enabled = boolish(watch_value)
+    found = False
+    for row in rows:
+        if safe_text(row.get("notice_id")) == notice_id:
+            row["watch_list"] = "true" if watch_enabled else ""
+            found = True
+            break
+    if not found:
+        return {"status": "error", "message": "notice_id not found"}
+
+    backup_path = backup_state_file_for_watch_toggle()
+    tmp_path = OPPORTUNITY_STATE_PATH.with_suffix(".csv.tmp")
+    try:
+        write_csv_preserve(tmp_path, fieldnames, rows)
+        tmp_path.replace(OPPORTUNITY_STATE_PATH)
+    except OSError as error:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        return {"status": "error", "message": f"CSV write failed: {error}"}
+    return {
+        "status": "ok",
+        "notice_id": notice_id,
+        "watch_list": watch_enabled,
+        "backup_path": backup_path,
+        "schema_backup_path": schema_backup,
     }
 
 
@@ -1619,7 +1698,7 @@ def fetch_synopsis_from_sam(notice_id):
                 for detail_link in detail_links_for_synopsis(row, notice_id, sam_uuid):
                     _response_json, raw_detail, _error = fetch_sam_detail(session, api_key, detail_link)
                     if raw_detail:
-                        synopsis = valid_synopsis_text(extract_description_from_detail(raw_detail))
+                        synopsis = valid_synopsis_text(extract_detail_description_safe(raw_detail))
                     if synopsis:
                         break
 
@@ -1634,7 +1713,7 @@ def fetch_synopsis_from_sam(notice_id):
 
         return {"status": "ok", "synopsis": synopsis}
     except Exception as error:
-        return {"status": "error", "message": safe_text(error)}
+        return {"status": "error", "message": redact_sensitive(error)}
 
 
 # ── AI WORKSPACE ─────────────────────────────────────────────────────────────
@@ -2213,6 +2292,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.handle_stage()
             if parsed.path == "/api/set-stage":
                 return self.handle_set_stage()
+            if parsed.path == "/api/watch":
+                return self.handle_watch()
             if parsed.path == "/api/note":
                 return self.handle_note()
             if parsed.path == "/api/fetch-synopsis":
@@ -2281,6 +2362,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         result = set_stage_override(payload.get("notice_id"), payload.get("stage"))
         if result.get("status") != "ok":
             return json_response(self, {"error": result.get("message", "Stage override failed")}, 400)
+        return json_response(self, result)
+
+    def handle_watch(self):
+        payload = self.read_json_body()
+        result = set_watch_list(payload.get("notice_id"), payload.get("watch_list"))
+        if result.get("status") != "ok":
+            return json_response(self, {"error": result.get("message", "Watch List update failed")}, 400)
         return json_response(self, result)
 
     def handle_note(self):
