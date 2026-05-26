@@ -374,6 +374,8 @@ def build_state(govcon_csv, mybidmatch_csv):
     last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     rows = []
     seen_govcon = set()
+    # Track notice_ids with a matching MyBidMatch entry for merged_sources annotation
+    mybidmatch_notice_ids = set()
 
     for row in read_csv_rows(govcon_csv):
         notice_id = notice_id_for(row)
@@ -385,7 +387,22 @@ def build_state(govcon_csv, mybidmatch_csv):
     for notice_id in sorted(artifact_notice_ids() - seen_govcon):
         rows.append(artifact_only_row(notice_id, last_updated))
 
-    for row in read_csv_rows(mybidmatch_csv):
+    mybidmatch_rows = read_csv_rows(mybidmatch_csv)
+    for row in mybidmatch_rows:
+        nid = safe_text(row.get("notice_id") or row.get("solicitation_number"))
+        if nid:
+            mybidmatch_notice_ids.add(nid)
+
+    for row in mybidmatch_rows:
+        nid = safe_text(row.get("notice_id") or row.get("solicitation_number"))
+        if nid and nid in seen_govcon:
+            # Enrich the existing GovCon Scout row with merged_sources instead of creating a duplicate
+            for existing in rows:
+                if safe_text(existing.get("notice_id")) == nid:
+                    existing["merged_sources"] = "GovCon Scout, MyBidMatch"
+                    existing["source_count"] = "2"
+                    break
+            continue
         rows.append(mybidmatch_state_row(row, last_updated))
 
     return rows
