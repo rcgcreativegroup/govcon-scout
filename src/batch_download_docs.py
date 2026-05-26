@@ -301,8 +301,8 @@ def needs_login_gate(live, auth_state=None):
     """
     if live:
         return True, (
-            "SAM.gov login required. Open noVNC, log in to SAM.gov, "
-            "then click Continue Batch."
+            "SAM.gov login required. Open noVNC, complete login, "
+            "then click I'm Logged In — Continue Downloads."
         )
     auth = auth_state or DEFAULT_AUTH_STATE
     if not auth_state_ready(auth):
@@ -311,6 +311,31 @@ def needs_login_gate(live, auth_state=None):
             "Regenerate auth.json or switch to live (noVNC) mode."
         )
     return False, ""
+
+
+def check_sam_session_live(live=True, auth_state=None):
+    """
+    Post-login verification called when the operator clicks
+    'I'm Logged In — Continue Downloads'.
+    Live mode: verifies DISPLAY is set (the live noVNC browser session cannot
+    be inspected without interfering with it; the operator's assertion is trusted).
+    Headless mode: verifies auth.json exists.
+    Returns (ok: bool, message: str).
+    """
+    if not live:
+        auth = auth_state or DEFAULT_AUTH_STATE
+        if auth_state_ready(auth):
+            return True, ""
+        return False, (
+            f"No SAM.gov session found at {auth}. "
+            "Regenerate auth.json, then retry."
+        )
+    if not os.environ.get("DISPLAY"):
+        return False, (
+            "DISPLAY is not set. Run scripts/novnc_reset.sh and "
+            "export DISPLAY=:99, then retry."
+        )
+    return True, ""
 
 
 def load_and_select(stages, limit, force, downloads_dir=None, extracts_dir=None, state_csv=None):

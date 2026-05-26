@@ -1805,15 +1805,25 @@
       const failed = results.filter(r => r.status.startsWith("failed_")).length;
 
       let html = "";
-      if (state.waiting_for_login) {
-        html += `<div style="color:var(--amber);margin-bottom:6px;font-size:12px;">&#9888; SAM.gov login required.</div>`;
-        html += `<div style="color:var(--secondary);margin-bottom:10px;">Open noVNC, log in to SAM.gov, then click Continue Batch.</div>`;
+      if (state.waiting_for_manual_login) {
+        html += `<div style="color:var(--amber);font-size:13px;font-weight:600;margin-bottom:8px;">&#9888; SAM.gov login required.</div>`;
+        html += `<ol style="color:var(--secondary);font-size:12px;margin:0 0 10px 16px;padding:0;line-height:1.8;">
+          <li>Open noVNC (forwarded port 6080 &rarr; vnc.html)</li>
+          <li>Complete SAM.gov / Login.gov login and MFA</li>
+          <li>When SAM.gov shows you are signed in, click <strong>I&apos;m Logged In</strong></li>
+        </ol>`;
         if (results.length) {
-          html += `<div style="color:var(--muted);margin-bottom:8px;">${skipped} candidate(s) pre-screened and skipped. ${state.total || 0} pending download after login.</div>`;
+          html += `<div style="color:var(--muted);font-size:11px;margin-bottom:8px;">${skipped} pre-screened skipped &bull; ${state.total || 0} pending download after login</div>`;
         }
-        html += `<div style="display:flex;gap:8px;margin-bottom:10px;">
-          <button id="batchContinueBtn" class="go" style="flex:2;">Continue Batch</button>
-          <button id="batchCancelBtn" style="flex:1;color:var(--red);border-color:#663333;background:transparent;">Cancel</button>
+        if (state.session_check_message) {
+          html += `<div style="color:var(--red);font-size:12px;margin-bottom:8px;">&#10007; ${h(state.session_check_message)}</div>`;
+        }
+        html += `<div style="margin-bottom:6px;">
+          <button id="batchOpenLoginBtn" style="width:100%;font-size:11px;padding:5px;">&#128279; Open SAM.gov Login in noVNC</button>
+        </div>`;
+        html += `<div style="display:flex;gap:8px;">
+          <button id="batchConfirmLoginBtn" class="go" style="flex:2;font-size:12px;">I&apos;m Logged In &mdash; Continue Downloads</button>
+          <button id="batchCancelBatchBtn" style="flex:1;font-size:12px;color:var(--red);border-color:#663333;background:transparent;">Cancel Batch</button>
         </div>`;
       } else if (state.running && !state.done) {
         html += `<div style="color:var(--cyan);margin-bottom:6px;">Running&#8230; ${state.completed || 0} / ${state.total || "?"} active candidates</div>`;
@@ -1839,32 +1849,56 @@
 
       body.innerHTML = html;
 
-      const continueBtn = document.getElementById("batchContinueBtn");
-      if (continueBtn) {
-        continueBtn.onclick = async () => {
-          continueBtn.disabled = true;
-          continueBtn.textContent = "Resuming…";
+      const openLoginBtn = document.getElementById("batchOpenLoginBtn");
+      if (openLoginBtn) {
+        openLoginBtn.onclick = async () => {
+          openLoginBtn.disabled = true;
+          openLoginBtn.textContent = "Opening…";
+          try {
+            await api("/api/batch-download-open-login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            });
+            openLoginBtn.textContent = "SAM.gov Opened";
+          } catch (err) {
+            openLoginBtn.textContent = err.message || "Could not open browser";
+          }
+          setTimeout(() => {
+            openLoginBtn.disabled = false;
+            openLoginBtn.textContent = "🔗 Open SAM.gov Login in noVNC";
+          }, 4000);
+        };
+      }
+
+      const confirmLoginBtn = document.getElementById("batchConfirmLoginBtn");
+      if (confirmLoginBtn) {
+        confirmLoginBtn.onclick = async () => {
+          confirmLoginBtn.disabled = true;
+          confirmLoginBtn.textContent = "Checking session…";
           try {
             await api("/api/batch-download-continue", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ cancel: false }),
             });
+            confirmLoginBtn.textContent = "Resuming…";
           } catch (err) {
-            flashStatus(err.message || "Continue failed.", 2500);
-            continueBtn.disabled = false;
-            continueBtn.textContent = "Continue Batch";
+            confirmLoginBtn.disabled = false;
+            confirmLoginBtn.textContent = "I’m Logged In — Continue Downloads";
+            flashStatus(err.message || "Session not confirmed. Complete SAM.gov login first.", 5000);
           }
         };
       }
-      const cancelBtn = document.getElementById("batchCancelBtn");
-      if (cancelBtn) {
-        cancelBtn.onclick = async () => {
+
+      const cancelBatchBtn = document.getElementById("batchCancelBatchBtn");
+      if (cancelBatchBtn) {
+        cancelBatchBtn.onclick = async () => {
           try {
-            await api("/api/batch-download-continue", {
+            await api("/api/batch-download-cancel", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ cancel: true }),
+              body: JSON.stringify({}),
             });
             stopBatchPolling();
             panel.classList.remove("open");

@@ -2567,8 +2567,9 @@ def workspace_read_draft_file(notice_id, draft_type):
 
 _batch_state = {
     "running": False,
-    "waiting_for_login": False,
+    "waiting_for_manual_login": False,
     "login_message": "",
+    "session_check_message": "",
     "run_id": "",
     "started_at": "",
     "stages": [],
@@ -2608,8 +2609,9 @@ def _run_batch_thread(stages, limit, force, live):
     def _finish(results, error="", report_path=""):
         with _batch_state_lock:
             _batch_state["running"] = False
-            _batch_state["waiting_for_login"] = False
+            _batch_state["waiting_for_manual_login"] = False
             _batch_state["login_message"] = ""
+            _batch_state["session_check_message"] = ""
             _batch_state["done"] = True
             _batch_state["results"] = list(results or [])
             _batch_state["error"] = error
@@ -2644,17 +2646,21 @@ def _run_batch_thread(stages, limit, force, live):
         gate, gate_msg = needs_login_gate(live, auth_state)
         if gate:
             with _batch_state_lock:
-                _batch_state["waiting_for_login"] = True
+                _batch_state["waiting_for_manual_login"] = True
                 _batch_state["login_message"] = gate_msg
+                _batch_state["session_check_message"] = ""
             _batch_login_event.clear()
-            resumed = _batch_login_event.wait(timeout=1800)  # 30 min
+            # Wait up to 2 hours — operator must explicitly confirm or cancel.
+            # No auto-fail during this window.
+            resumed = _batch_login_event.wait(timeout=7200)
             if not resumed:
-                _finish(skipped_results, error="Login gate timed out (30 min). Start a new batch.")
+                _finish(skipped_results, error="Login gate timed out (2 h). Start a new batch.")
                 return
             with _batch_state_lock:
                 cancelled = _batch_state.get("_cancelled", False)
-                _batch_state["waiting_for_login"] = False
+                _batch_state["waiting_for_manual_login"] = False
                 _batch_state["login_message"] = ""
+                _batch_state["session_check_message"] = ""
             if cancelled:
                 _finish(skipped_results, error="Batch cancelled by operator.")
                 return
@@ -2731,8 +2737,9 @@ def handle_batch_download_docs_request(payload):
         _batch_login_event.clear()
         _batch_state.update({
             "running": True,
-            "waiting_for_login": False,
+            "waiting_for_manual_login": False,
             "login_message": "",
+            "session_check_message": "",
             "run_id": run_id,
             "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "stages": stages,
@@ -2770,13 +2777,77 @@ def handle_batch_download_continue_request(payload):
     with _batch_state_lock:
         if not _batch_state["running"]:
             return {"status": "error", "message": "No batch is currently running."}, 400
-        if not _batch_state.get("waiting_for_login"):
+        if not _batch_state.get("waiting_for_manual_login"):
             return {"status": "error", "message": "Batch is not waiting for login."}, 400
         if cancel:
             _batch_state["_cancelled"] = True
+            _batch_state["session_check_message"] = ""
+        live_mode = _batch_state.get("live", True)
+
+    if cancel:
+        _batch_login_event.set()
+        return {"status": "ok", "action": "cancelled"}, 200
+
+    # Session check before unblocking the download thread.
+    # Live mode: verifies DISPLAY is set (operator's assertion is trusted).
+    # Headless mode: verifies auth.json exists.
+    from batch_download_docs import check_sam_session_live
+    ok, msg = check_sam_session_live(live=live_mode)
+    if not ok:
+        fail_msg = (
+            f"Still not logged in. {msg} Complete SAM.gov login and try again."
+            if msg else
+            "Still not logged in. Complete SAM.gov login and try again."
+        )
+        with _batch_state_lock:
+            _batch_state["session_check_message"] = fail_msg
+        return {"status": "not_logged_in", "message": fail_msg}, 400
+
+    with _batch_state_lock:
+        _batch_state["session_check_message"] = ""
     _batch_login_event.set()
-    action = "cancelled" if cancel else "resumed"
-    return {"status": "ok", "action": action}, 200
+    return {"status": "ok", "action": "resumed"}, 200
+
+
+def handle_batch_download_open_login_request():
+    display = os.environ.get("DISPLAY", "")
+    if not display:
+        return {"status": "error", "message": "DISPLAY not set. Run scripts/novnc_reset.sh first."}, 400
+    browsers = ["chromium-browser", "chromium", "google-chrome", "firefox"]
+    for browser_cmd in browsers:
+        if shutil.which(browser_cmd):
+            try:
+                subprocess.Popen(
+                    [browser_cmd, "--no-sandbox", "https://sam.gov"],
+                    env={**os.environ, "DISPLAY": display},
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return {"status": "ok", "message": f"SAM.gov opening in {browser_cmd}."}, 200
+            except Exception:
+                continue
+    if shutil.which("xdg-open"):
+        try:
+            subprocess.Popen(
+                ["xdg-open", "https://sam.gov"],
+                env={**os.environ, "DISPLAY": display},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return {"status": "ok", "message": "SAM.gov opening in default browser."}, 200
+        except Exception:
+            pass
+    return {"status": "error", "message": "No browser found. Open SAM.gov manually in noVNC."}, 500
+
+
+def handle_batch_download_cancel_request():
+    with _batch_state_lock:
+        if not _batch_state["running"]:
+            return {"status": "error", "message": "No batch is currently running."}, 400
+        _batch_state["_cancelled"] = True
+        _batch_state["session_check_message"] = ""
+    _batch_login_event.set()
+    return {"status": "ok", "action": "cancelled"}, 200
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -2868,6 +2939,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.handle_batch_download_docs()
             if parsed.path == "/api/batch-download-continue":
                 return self.handle_batch_download_continue()
+            if parsed.path == "/api/batch-download-open-login":
+                return self.handle_batch_download_open_login()
+            if parsed.path == "/api/batch-download-cancel":
+                return self.handle_batch_download_cancel()
             return json_response(self, {"error": "Not found"}, 404)
         except RequestTooLarge as error:
             return json_response(self, {"status": "error", "message": str(error)}, error.status)
@@ -3087,6 +3162,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def handle_batch_download_continue(self):
         payload = self.read_json_body()
         result, status_code = handle_batch_download_continue_request(payload)
+        return json_response(self, result, status_code)
+
+    def handle_batch_download_open_login(self):
+        result, status_code = handle_batch_download_open_login_request()
+        return json_response(self, result, status_code)
+
+    def handle_batch_download_cancel(self):
+        result, status_code = handle_batch_download_cancel_request()
         return json_response(self, result, status_code)
 
     def serve_safe_file(self, parsed):
