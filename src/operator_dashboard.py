@@ -2586,6 +2586,13 @@ _batch_state = {
 }
 _batch_state_lock = threading.Lock()
 _batch_login_event = threading.Event()
+_batch_login_lock = threading.Lock()
+_batch_login_browser = {
+    "playwright": None,
+    "browser": None,
+    "context": None,
+    "page": None,
+}
 
 
 def batch_state_snapshot():
@@ -2599,14 +2606,17 @@ def _run_batch_thread(stages, limit, force, live):
         live_preflight_check,
         needs_login_gate,
         process_candidate,
+        profile_ready,
         write_batch_report,
         DEFAULT_AUTH_STATE,
+        DEFAULT_PROFILE_DIR,
         DEFAULT_DOWNLOADS_DIR,
         DEFAULT_EXTRACTS_DIR,
         DEFAULT_STATE_CSV,
     )
 
     def _finish(results, error="", report_path=""):
+        close_batch_login_browser()
         with _batch_state_lock:
             _batch_state["running"] = False
             _batch_state["waiting_for_manual_login"] = False
@@ -2623,12 +2633,14 @@ def _run_batch_thread(stages, limit, force, live):
 
     try:
         auth_state = DEFAULT_AUTH_STATE
+        profile_dir = DEFAULT_PROFILE_DIR
         downloads_dir = DEFAULT_DOWNLOADS_DIR
         extracts_dir = DEFAULT_EXTRACTS_DIR
         state_csv = DEFAULT_STATE_CSV
 
         # Phase 1: noVNC preflight
         if live:
+            os.environ.setdefault("DISPLAY", ":99")
             ready, msg = live_preflight_check()
             if not ready:
                 _finish([], error=msg)
@@ -2642,8 +2654,8 @@ def _run_batch_thread(stages, limit, force, live):
             _batch_state["results"] = list(skipped_results)
             _batch_state["total"] = len(active_candidates)
 
-        # Phase 3: login gate — always gate in live mode; gate headless if no auth.json
-        gate, gate_msg = needs_login_gate(live, auth_state)
+        # Phase 3: login gate — always gate in live mode; gate headless if no saved session exists.
+        gate, gate_msg = needs_login_gate(live, auth_state, profile_dir)
         if gate:
             with _batch_state_lock:
                 _batch_state["waiting_for_manual_login"] = True
@@ -2680,6 +2692,7 @@ def _run_batch_thread(stages, limit, force, live):
                 auth_state=auth_state,
                 downloads_dir=downloads_dir,
                 headless=headless,
+                profile_dir=profile_dir if profile_ready(profile_dir) else "",
             )
             results.append({
                 "notice_id": c["notice_id"],
@@ -2712,14 +2725,15 @@ def _run_batch_thread(stages, limit, force, live):
 
 
 def handle_batch_download_docs_request(payload):
-    raw_stages = payload.get("stages", ["Intake", "AI Review", "Development"])
+    default_stages = ["Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"]
+    raw_stages = payload.get("stages", default_stages)
     if not isinstance(raw_stages, list):
-        raw_stages = ["Intake", "AI Review", "Development"]
+        raw_stages = default_stages
 
-    allowed = {"Intake", "AI Review", "Development"}
+    allowed = {"Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"}
     stages = [s for s in raw_stages if safe_text(s) in allowed]
     if not stages:
-        stages = ["Intake", "AI Review", "Development"]
+        stages = default_stages
 
     try:
         limit = int(payload.get("limit", 10))
@@ -2785,14 +2799,21 @@ def handle_batch_download_continue_request(payload):
         live_mode = _batch_state.get("live", True)
 
     if cancel:
+        close_batch_login_browser()
         _batch_login_event.set()
         return {"status": "ok", "action": "cancelled"}, 200
 
+    save_ok, save_msg = save_batch_login_session()
+    if not save_ok:
+        with _batch_state_lock:
+            _batch_state["session_check_message"] = save_msg
+        return {"status": "not_logged_in", "message": save_msg}, 400
+
     # Session check before unblocking the download thread.
     # Live mode: verifies DISPLAY is set (operator's assertion is trusted).
-    # Headless mode: verifies auth.json exists.
-    from batch_download_docs import check_sam_session_live
-    ok, msg = check_sam_session_live(live=live_mode)
+    # Headless mode: verifies a persistent profile or auth.json fallback exists.
+    from batch_download_docs import DEFAULT_PROFILE_DIR, check_sam_session_live
+    ok, msg = check_sam_session_live(live=live_mode, profile_dir=DEFAULT_PROFILE_DIR)
     if not ok:
         fail_msg = (
             f"Still not logged in. {msg} Complete SAM.gov login and try again."
@@ -2809,35 +2830,140 @@ def handle_batch_download_continue_request(payload):
     return {"status": "ok", "action": "resumed"}, 200
 
 
-def handle_batch_download_open_login_request():
-    display = os.environ.get("DISPLAY", "")
-    if not display:
-        return {"status": "error", "message": "DISPLAY not set. Run scripts/novnc_reset.sh first."}, 400
-    browsers = ["chromium-browser", "chromium", "google-chrome", "firefox"]
-    for browser_cmd in browsers:
-        if shutil.which(browser_cmd):
-            try:
-                subprocess.Popen(
-                    [browser_cmd, "--no-sandbox", "https://sam.gov"],
-                    env={**os.environ, "DISPLAY": display},
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                return {"status": "ok", "message": f"SAM.gov opening in {browser_cmd}."}, 200
-            except Exception:
-                continue
-    if shutil.which("xdg-open"):
+def close_batch_login_browser():
+    with _batch_login_lock:
+        page = _batch_login_browser.get("page")
+        context = _batch_login_browser.get("context")
+        browser = _batch_login_browser.get("browser")
+        playwright = _batch_login_browser.get("playwright")
+        _batch_login_browser.update({"playwright": None, "browser": None, "context": None, "page": None})
+    for obj in [page, context, browser]:
         try:
-            subprocess.Popen(
-                ["xdg-open", "https://sam.gov"],
-                env={**os.environ, "DISPLAY": display},
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return {"status": "ok", "message": "SAM.gov opening in default browser."}, 200
+            if obj:
+                obj.close()
         except Exception:
             pass
-    return {"status": "error", "message": "No browser found. Open SAM.gov manually in noVNC."}, 500
+    try:
+        if playwright:
+            playwright.stop()
+    except Exception:
+        pass
+
+
+def batch_login_page_looks_logged_out(page):
+    try:
+        html = page.content().lower()
+        url = safe_text(getattr(page, "url", "")).lower()
+    except Exception:
+        return False
+    logged_out_markers = [
+        "login.gov",
+        "/sign-in",
+        "sign in",
+        "sign-in-button-current",
+        '"uid":0',
+    ]
+    return any(marker in html or marker in url for marker in logged_out_markers)
+
+
+def batch_profile_lock_message(error):
+    text = str(error).lower()
+    markers = [
+        "processsingleton",
+        "singletonlock",
+        "user data directory is already in use",
+        "already in use",
+        "lock",
+    ]
+    if any(marker in text for marker in markers):
+        return (
+            "SAM browser profile is already open. Close the login browser, "
+            "then retry the document download."
+        )
+    return ""
+
+
+def save_batch_login_session():
+    from batch_download_docs import DEFAULT_AUTH_STATE, DEFAULT_PROFILE_DIR
+
+    with _batch_login_lock:
+        context = _batch_login_browser.get("context")
+        page = _batch_login_browser.get("page")
+    auth_path = Path(DEFAULT_AUTH_STATE)
+    profile_path = Path(DEFAULT_PROFILE_DIR)
+    if context:
+        try:
+            if page:
+                page.goto("https://sam.gov", wait_until="domcontentloaded", timeout=90000)
+                page.wait_for_timeout(3000)
+                if batch_login_page_looks_logged_out(page):
+                    return False, "SAM.gov still appears logged out. Complete Login.gov/MFA in the noVNC browser, then try Continue again."
+            close_batch_login_browser()
+            return True, "SAM browser profile is ready."
+        except Exception as error:
+            friendly = batch_profile_lock_message(error)
+            if friendly:
+                return False, friendly
+            return False, f"Could not verify SAM.gov session. Keep the login browser open and try again: {error}"
+    if profile_path.exists() and profile_path.is_dir():
+        return True, "Using existing SAM browser profile."
+    if auth_path.exists():
+        return True, f"Using existing {auth_path.name} session."
+    return False, "Click Open SAM.gov Login in noVNC first, complete login/MFA, then click Continue."
+
+
+def handle_batch_download_open_login_request():
+    display = os.environ.get("DISPLAY") or ":99"
+    os.environ.setdefault("DISPLAY", display)
+    if not display:
+        return {"status": "error", "message": "DISPLAY not set. Run scripts/novnc_reset.sh first."}, 400
+    try:
+        from batch_download_docs import DEFAULT_PROFILE_DIR
+        from playwright.sync_api import sync_playwright
+    except ImportError as error:
+        return {"status": "error", "message": f"Playwright login browser unavailable: {error}"}, 500
+
+    with _batch_login_lock:
+        page = _batch_login_browser.get("page")
+        if page:
+            try:
+                page.bring_to_front()
+                page.goto("https://sam.gov", wait_until="domcontentloaded", timeout=90000)
+                return {"status": "ok", "message": "SAM.gov login browser is already open in noVNC."}, 200
+            except Exception:
+                pass
+
+    close_batch_login_browser()
+    try:
+        playwright = sync_playwright().start()
+        profile_path = Path(DEFAULT_PROFILE_DIR)
+        profile_path.mkdir(parents=True, exist_ok=True)
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir=str(profile_path),
+            headless=False,
+            viewport={"width": 1440, "height": 1000},
+            accept_downloads=True,
+        )
+        browser = None
+        page = context.pages[0] if context.pages else context.new_page()
+        page.goto("https://sam.gov", wait_until="domcontentloaded", timeout=90000)
+        with _batch_login_lock:
+            _batch_login_browser.update({
+                "playwright": playwright,
+                "browser": browser,
+                "context": context,
+                "page": page,
+            })
+        return {
+            "status": "ok",
+            "message": "SAM.gov profile browser opened in noVNC. Complete login/MFA, then click Continue.",
+        }, 200
+    except Exception as error:
+        close_batch_login_browser()
+        friendly = batch_profile_lock_message(error)
+        if friendly:
+            return {"status": "error", "message": friendly}, 409
+        return {"status": "error", "message": f"Could not open SAM.gov login browser: {error}"}, 500
 
 
 def handle_batch_download_cancel_request():
@@ -2846,6 +2972,7 @@ def handle_batch_download_cancel_request():
             return {"status": "error", "message": "No batch is currently running."}, 400
         _batch_state["_cancelled"] = True
         _batch_state["session_check_message"] = ""
+    close_batch_login_browser()
     _batch_login_event.set()
     return {"status": "ok", "action": "cancelled"}, 200
 

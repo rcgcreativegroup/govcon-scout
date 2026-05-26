@@ -1,8 +1,9 @@
 """
 Batch document download for opportunities already kept by the operator.
 
-Selects candidates from Intake / AI Review / Development stages and downloads
-SAM.gov / PIEE attachment packages using the saved auth.json browser session.
+Selects candidates from kept post-intake stages and downloads
+SAM.gov / PIEE attachment packages using the persistent SAM browser profile
+when available, with auth.json retained as a fallback.
 """
 
 import argparse
@@ -17,13 +18,14 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_AUTH_STATE = str(BASE_DIR / "auth.json")
+DEFAULT_PROFILE_DIR = str(BASE_DIR / ".browser/sam-profile")
 DEFAULT_DOWNLOADS_DIR = str(BASE_DIR / "downloads")
 DEFAULT_EXTRACTS_DIR = str(BASE_DIR / "reports/document_extracts")
 DEFAULT_BATCH_RUNS_DIR = str(BASE_DIR / "reports/batch_runs")
 DEFAULT_STATE_CSV = str(BASE_DIR / "data/opportunity_state.csv")
 NOVNC_CHECK_SCRIPT = str(BASE_DIR / "scripts/novnc_check.sh")
 
-BATCH_STAGES = {"Intake", "AI Review", "Development"}
+BATCH_STAGES = {"Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"}
 
 SOURCE_URL_FIELDS = [
     "source_url",
@@ -161,6 +163,11 @@ def auth_state_ready(auth_state_path):
     return Path(auth_state_path).exists()
 
 
+def profile_ready(profile_dir):
+    path = Path(profile_dir)
+    return path.exists() and path.is_dir()
+
+
 def select_candidates(rows, stages, limit, force, downloads_dir, extracts_dir):
     candidates = []
     kept = 0
@@ -214,7 +221,7 @@ def _next_action_for_skip(skip_reason):
     return NEXT_ACTION_SKIP
 
 
-def process_candidate(notice_id, url, auth_state, downloads_dir, headless):
+def process_candidate(notice_id, url, auth_state, downloads_dir, headless, profile_dir=None):
     try:
         from sam_browser_downloader import download_for_notice
     except ImportError as err:
@@ -237,6 +244,7 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless):
             downloads_dir=downloads_dir,
             headless=headless,
             debug=True,
+            profile_dir=profile_dir or "",
         )
     except SystemExit as err:
         code = getattr(err, "code", 1)
@@ -245,7 +253,7 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless):
                 "status": STATUS_FAILED_INFRA,
                 "error": (
                     "SAM.gov login/live browser required. "
-                    "Regenerate auth.json via noVNC, then retry."
+                    "Open SAM.gov Login in noVNC, complete login, then retry."
                 ),
                 "downloads_folder": str(Path(downloads_dir) / notice_id),
                 "attachment_count": 0,
@@ -261,9 +269,19 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless):
             "next_action": NEXT_ACTION_MANUAL,
         }
     except Exception as err:
+        message = str(err)
+        if "SAM browser profile is already open" in message or "SAM.gov session is not logged in" in message:
+            return {
+                "status": STATUS_FAILED_INFRA,
+                "error": message,
+                "downloads_folder": str(Path(downloads_dir) / notice_id),
+                "attachment_count": 0,
+                "extracted_zips": 0,
+                "next_action": NEXT_ACTION_RETRY,
+            }
         return {
             "status": STATUS_FAILED_OTHER,
-            "error": str(err),
+            "error": message,
             "downloads_folder": str(Path(downloads_dir) / notice_id),
             "attachment_count": 0,
             "extracted_zips": 0,
@@ -293,36 +311,41 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless):
     }
 
 
-def needs_login_gate(live, auth_state=None):
+def needs_login_gate(live, auth_state=None, profile_dir=None):
     """
     Returns (needs_gate: bool, message: str).
     Live mode always gates — operator must confirm SAM.gov login via noVNC.
-    Headless mode gates only if auth.json is missing.
+    Headless mode gates only if neither the persistent profile nor auth.json exists.
     """
     if live:
         return True, (
             "SAM.gov login required. Open noVNC, complete login, "
-            "then click I'm Logged In — Continue Downloads."
+            "then click I'm Logged In — Close Login & Continue Downloads."
         )
+    profile = profile_dir or DEFAULT_PROFILE_DIR
+    if profile_ready(profile):
+        return False, ""
     auth = auth_state or DEFAULT_AUTH_STATE
     if not auth_state_ready(auth):
         return True, (
-            f"No SAM.gov session found at {auth}. "
-            "Regenerate auth.json or switch to live (noVNC) mode."
+            "No SAM.gov browser session found. Open SAM.gov Login in noVNC "
+            "or regenerate auth.json."
         )
     return False, ""
 
 
-def check_sam_session_live(live=True, auth_state=None):
+def check_sam_session_live(live=True, auth_state=None, profile_dir=None):
     """
     Post-login verification called when the operator clicks
     'I'm Logged In — Continue Downloads'.
-    Live mode: verifies DISPLAY is set (the live noVNC browser session cannot
-    be inspected without interfering with it; the operator's assertion is trusted).
-    Headless mode: verifies auth.json exists.
+    Live mode: verifies DISPLAY is set. Headless mode verifies that either the
+    persistent profile or auth.json fallback exists.
     Returns (ok: bool, message: str).
     """
     if not live:
+        profile = profile_dir or DEFAULT_PROFILE_DIR
+        if profile_ready(profile):
+            return True, ""
         auth = auth_state or DEFAULT_AUTH_STATE
         if auth_state_ready(auth):
             return True, ""
@@ -396,6 +419,7 @@ def run_batch(
     force=False,
     live=True,
     auth_state=None,
+    profile_dir=None,
     downloads_dir=None,
     extracts_dir=None,
     state_csv=None,
@@ -408,6 +432,7 @@ def run_batch(
     """
     stages = set(stages) if stages else BATCH_STAGES
     auth_state = auth_state or DEFAULT_AUTH_STATE
+    profile_dir = profile_dir or DEFAULT_PROFILE_DIR
     downloads_dir = downloads_dir or DEFAULT_DOWNLOADS_DIR
     extracts_dir = extracts_dir or DEFAULT_EXTRACTS_DIR
     state_csv = state_csv or DEFAULT_STATE_CSV
@@ -417,11 +442,10 @@ def run_batch(
         if not ready:
             return [], msg
 
-    if not auth_state_ready(auth_state):
+    if not profile_ready(profile_dir) and not auth_state_ready(auth_state):
         return [], (
-            f"No SAM.gov session found at {auth_state}. "
-            "Regenerate auth.json via noVNC: "
-            "DISPLAY=:99 npx playwright codegen --save-storage=auth.json https://sam.gov"
+            "No SAM.gov session found. Open SAM.gov Login in noVNC to create "
+            "the persistent browser profile, or regenerate auth.json."
         )
 
     state_path = Path(state_csv)
@@ -466,6 +490,7 @@ def run_batch(
             auth_state=auth_state,
             downloads_dir=downloads_dir,
             headless=headless,
+            profile_dir=profile_dir if profile_ready(profile_dir) else "",
         )
         result = {
             "notice_id": c["notice_id"],
@@ -551,7 +576,7 @@ def write_batch_report(results, report_path, stages, limit, force, live):
         "",
         "1. For downloaded cards: use Run AI Review in the dashboard.",
         "2. For skipped (no URL / sources-sought): upload documents manually.",
-        "3. For failed (login/infra): regenerate auth.json via noVNC and retry.",
+        "3. For failed (login/infra): open SAM.gov Login in noVNC, then retry.",
         "",
     ]
 
@@ -565,13 +590,18 @@ def parse_args():
     )
     parser.add_argument(
         "--stages", nargs="+", default=list(BATCH_STAGES),
-        help="Stages to include (default: Intake AI Review Development).",
+        help="Stages to include (default: kept post-intake stages).",
     )
     parser.add_argument("--limit", type=int, default=10, help="Max candidates to download.")
     parser.add_argument("--force", action="store_true", help="Re-download even if docs exist.")
     parser.add_argument("--live", action="store_true", default=True, help="Use headed browser (requires noVNC).")
     parser.add_argument("--headless", action="store_true", help="Use headless browser (overrides --live).")
     parser.add_argument("--auth-state", default=DEFAULT_AUTH_STATE, help="Path to auth.json.")
+    parser.add_argument(
+        "--profile-dir",
+        default=DEFAULT_PROFILE_DIR,
+        help="Persistent SAM browser profile directory. Preferred when present.",
+    )
     parser.add_argument("--downloads-dir", default=DEFAULT_DOWNLOADS_DIR)
     parser.add_argument("--extracts-dir", default=DEFAULT_EXTRACTS_DIR)
     parser.add_argument("--state-csv", default=DEFAULT_STATE_CSV)
@@ -598,6 +628,7 @@ def main():
         force=args.force,
         live=live,
         auth_state=args.auth_state,
+        profile_dir=args.profile_dir,
         downloads_dir=args.downloads_dir,
         extracts_dir=args.extracts_dir,
         state_csv=args.state_csv,

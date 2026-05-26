@@ -11,6 +11,7 @@ from playwright.sync_api import sync_playwright
 
 
 DEFAULT_AUTH_STATE = "auth.json"
+DEFAULT_PROFILE_DIR = ".browser/sam-profile"
 DEFAULT_DOWNLOADS_DIR = "downloads"
 DEFAULT_EXPORT_CSV = "exports/govcon_scout_opportunities_latest.csv"
 
@@ -233,6 +234,23 @@ def filename_from_url_or_text(url, text="", fallback="downloaded_file"):
     return fallback
 
 
+def profile_label(profile_dir):
+    return Path(profile_dir).name or "sam-profile"
+
+
+def is_profile_lock_error(error):
+    text = str(error).lower()
+    markers = [
+        "processsingleton",
+        "singletonlock",
+        "lock",
+        "profile",
+        "user data directory is already in use",
+        "already in use",
+    ]
+    return any(marker in text for marker in markers)
+
+
 def require_auth_state(auth_state):
     path = Path(auth_state)
 
@@ -274,7 +292,26 @@ def save_page_debug(page, output_folder, notice_id, label="page"):
         print(f"Could not save debug screenshot: {error}")
 
 
-def open_browser_context(playwright, auth_state, headless=True):
+def open_browser_context(playwright, auth_state, headless=True, profile_dir=""):
+    if profile_dir:
+        profile_path = Path(profile_dir)
+        profile_path.mkdir(parents=True, exist_ok=True)
+        try:
+            context = playwright.chromium.launch_persistent_context(
+                user_data_dir=str(profile_path),
+                headless=headless,
+                accept_downloads=True,
+                viewport={"width": 1440, "height": 1000},
+            )
+            return None, context
+        except Exception as error:
+            if is_profile_lock_error(error):
+                raise RuntimeError(
+                    "SAM browser profile is already open. Close the login browser, "
+                    "then retry the document download."
+                ) from error
+            raise
+
     require_auth_state(auth_state)
 
     browser = playwright.chromium.launch(headless=headless)
@@ -303,9 +340,12 @@ def page_looks_logged_out(page):
     return any(marker in html for marker in logged_out_markers)
 
 
-def test_auth(auth_state, headless=True, screenshot_path="sam-session-test.png"):
+def test_auth(auth_state, headless=True, screenshot_path="sam-session-test.png", profile_dir=""):
     print("")
-    print(f"Testing SAM.gov session with auth state: {auth_state}")
+    if profile_dir:
+        print(f"Testing SAM.gov session with profile: {profile_label(profile_dir)}")
+    else:
+        print(f"Testing SAM.gov session with auth state: {Path(auth_state).name}")
     print("")
 
     with sync_playwright() as playwright:
@@ -313,6 +353,7 @@ def test_auth(auth_state, headless=True, screenshot_path="sam-session-test.png")
             playwright=playwright,
             auth_state=auth_state,
             headless=headless,
+            profile_dir=profile_dir,
         )
 
         page = context.new_page()
@@ -328,7 +369,8 @@ def test_auth(auth_state, headless=True, screenshot_path="sam-session-test.png")
         logged_out = page_looks_logged_out(page)
 
         context.close()
-        browser.close()
+        if browser:
+            browser.close()
 
     if logged_out:
         print("")
@@ -351,7 +393,7 @@ def test_auth(auth_state, headless=True, screenshot_path="sam-session-test.png")
 
 def run_login_instructions():
     print("")
-    print("Manual SAM.gov login for Codespaces should be done through noVNC + Playwright codegen.")
+    print("Manual SAM.gov login for Codespaces should use noVNC + a persistent Playwright profile.")
     print("")
     print("Start virtual display services if needed:")
     print("")
@@ -363,12 +405,15 @@ def run_login_instructions():
     print("")
     print("Open forwarded port 6080, click vnc.html, then Connect.")
     print("")
-    print("Then run:")
+    print("Preferred persistent profile flow:")
+    print("")
+    print("  python src/sam_browser_downloader.py --test-auth --profile-dir .browser/sam-profile --headed")
+    print("")
+    print("Fallback auth.json flow:")
     print("")
     print("  DISPLAY=:99 npx playwright codegen --save-storage=auth.json https://sam.gov")
     print("")
-    print("Log in manually, complete MFA, then stop codegen with CTRL+C.")
-    print("Do not commit auth.json.")
+    print("Do not commit auth.json or .browser/.")
     print("")
 
 
@@ -764,7 +809,15 @@ def open_piee_and_download(context, page, piee_url, notice_id, output_folder, do
     return downloaded_paths
 
 
-def download_for_notice(auth_state, notice_id, url, downloads_dir, headless=True, debug=True):
+def download_for_notice(
+    auth_state,
+    notice_id,
+    url,
+    downloads_dir,
+    headless=True,
+    debug=True,
+    profile_dir="",
+):
     notice_folder = Path(downloads_dir) / make_safe_folder_name(notice_id)
     ensure_folder(notice_folder)
 
@@ -772,7 +825,10 @@ def download_for_notice(auth_state, notice_id, url, downloads_dir, headless=True
     print(f"Notice ID: {notice_id}")
     print(f"SAM.gov URL: {url}")
     print(f"Download folder: {notice_folder}")
-    print(f"Auth state: {auth_state}")
+    if profile_dir:
+        print(f"Session mode: persistent profile ({profile_label(profile_dir)})")
+    else:
+        print(f"Auth state: {Path(auth_state).name}")
     print(f"Headless: {headless}")
     print("")
 
@@ -783,6 +839,7 @@ def download_for_notice(auth_state, notice_id, url, downloads_dir, headless=True
             playwright=playwright,
             auth_state=auth_state,
             headless=headless,
+            profile_dir=profile_dir,
         )
 
         page = context.new_page()
@@ -790,6 +847,11 @@ def download_for_notice(auth_state, notice_id, url, downloads_dir, headless=True
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
             wait_for_page_to_settle(page, label="SAM page")
+            if page_looks_logged_out(page):
+                raise RuntimeError(
+                    "SAM.gov session is not logged in. Open SAM.gov Login in noVNC, "
+                    "complete login/MFA, then retry document download."
+                )
 
             print("SAM.gov page loaded. Looking for PIEE/attachment candidates...")
 
@@ -822,7 +884,8 @@ def download_for_notice(auth_state, notice_id, url, downloads_dir, headless=True
 
         finally:
             context.close()
-            browser.close()
+            if browser:
+                browser.close()
 
     downloaded_paths = list(dict.fromkeys([path for path in downloaded_paths if path]))
 
@@ -889,7 +952,15 @@ def select_rows_for_download(rows, limit=5):
     return candidates[:limit]
 
 
-def download_from_csv(auth_state, csv_path, downloads_dir, limit=5, headless=True, debug=True):
+def download_from_csv(
+    auth_state,
+    csv_path,
+    downloads_dir,
+    limit=5,
+    headless=True,
+    debug=True,
+    profile_dir="",
+):
     rows = read_pipeline_or_csv(csv_path)
     selected = select_rows_for_download(rows, limit=limit)
 
@@ -916,6 +987,7 @@ def download_from_csv(auth_state, csv_path, downloads_dir, limit=5, headless=Tru
             downloads_dir=downloads_dir,
             headless=headless,
             debug=debug,
+            profile_dir=profile_dir,
         )
 
 
@@ -940,6 +1012,12 @@ def parse_args():
         "--auth-state",
         default=DEFAULT_AUTH_STATE,
         help="Playwright storage state file created by codegen login.",
+    )
+
+    parser.add_argument(
+        "--profile-dir",
+        default="",
+        help="Optional persistent Playwright profile directory. Preferred over --auth-state when provided.",
     )
 
     parser.add_argument(
@@ -1006,6 +1084,7 @@ def main():
         test_auth(
             auth_state=args.auth_state,
             headless=headless,
+            profile_dir=args.profile_dir,
         )
         return
 
@@ -1017,6 +1096,7 @@ def main():
             limit=args.limit,
             headless=headless,
             debug=not args.no_debug,
+            profile_dir=args.profile_dir,
         )
         return
 
@@ -1028,6 +1108,7 @@ def main():
             downloads_dir=args.downloads_dir,
             headless=headless,
             debug=not args.no_debug,
+            profile_dir=args.profile_dir,
         )
         return
 

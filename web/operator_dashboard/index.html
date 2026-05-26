@@ -1809,8 +1809,9 @@
         html += `<div style="color:var(--amber);font-size:13px;font-weight:600;margin-bottom:8px;">&#9888; SAM.gov login required.</div>`;
         html += `<ol style="color:var(--secondary);font-size:12px;margin:0 0 10px 16px;padding:0;line-height:1.8;">
           <li>Open noVNC (forwarded port 6080 &rarr; vnc.html)</li>
-          <li>Complete SAM.gov / Login.gov login and MFA</li>
-          <li>When SAM.gov shows you are signed in, click <strong>I&apos;m Logged In</strong></li>
+          <li>Click <strong>Open SAM.gov Login in noVNC</strong> to open the SAM browser profile</li>
+          <li>Complete SAM.gov / Login.gov login and MFA in that browser</li>
+          <li>When SAM.gov shows you are signed in, click <strong>I&apos;m Logged In</strong> to close the login browser and continue</li>
         </ol>`;
         if (results.length) {
           html += `<div style="color:var(--muted);font-size:11px;margin-bottom:8px;">${skipped} pre-screened skipped &bull; ${state.total || 0} pending download after login</div>`;
@@ -1822,7 +1823,7 @@
           <button id="batchOpenLoginBtn" style="width:100%;font-size:11px;padding:5px;">&#128279; Open SAM.gov Login in noVNC</button>
         </div>`;
         html += `<div style="display:flex;gap:8px;">
-          <button id="batchConfirmLoginBtn" class="go" style="flex:2;font-size:12px;">I&apos;m Logged In &mdash; Continue Downloads</button>
+          <button id="batchConfirmLoginBtn" class="go" style="flex:2;font-size:12px;">I&apos;m Logged In &mdash; Close Login & Continue Downloads</button>
           <button id="batchCancelBatchBtn" style="flex:1;font-size:12px;color:var(--red);border-color:#663333;background:transparent;">Cancel Batch</button>
         </div>`;
       } else if (state.running && !state.done) {
@@ -1885,7 +1886,7 @@
             confirmLoginBtn.textContent = "Resuming…";
           } catch (err) {
             confirmLoginBtn.disabled = false;
-            confirmLoginBtn.textContent = "I’m Logged In — Continue Downloads";
+            confirmLoginBtn.textContent = "I’m Logged In — Close Login & Continue Downloads";
             flashStatus(err.message || "Session not confirmed. Complete SAM.gov login first.", 5000);
           }
         };
@@ -1961,9 +1962,9 @@
           <h2>&#11015; Download Documents for Kept Items</h2>
           <pre>${h([
             "Downloads SAM.gov / PIEE solicitation packages for opportunities",
-            "you have already moved to Intake, AI Review, or Development.",
+            "you have kept past Intake where local documents matter.",
             "",
-            "Requires: auth.json (SAM.gov session) + noVNC if using headed mode.",
+            "The login step opens a persistent SAM browser profile in noVNC.",
             "Does NOT run AI Review automatically.",
             "Does NOT change stages or pass/archive anything.",
           ].join("\n"))}</pre>
@@ -1994,7 +1995,7 @@
           const result = await api("/api/batch-download-docs", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ stages: ["Intake", "AI Review", "Development"], limit, force, live }),
+            body: JSON.stringify({ stages: ["Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"], limit, force, live }),
           });
           modal.remove();
           renderBatchProgress({ running: true, done: false, completed: 0, total: 0, results: [], error: "" });
