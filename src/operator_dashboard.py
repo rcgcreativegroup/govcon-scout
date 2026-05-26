@@ -22,6 +22,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 
+from ai_review_generator import apply_ai_review as run_ai_review_apply
+from ai_review_generator import run_ai_review as run_structured_ai_review
 from detail_enrichment import extract_description_from_detail, fetch_sam_detail
 from sam_client import fetch_notice_description, get_sam_api_key
 
@@ -1197,8 +1199,63 @@ def document_checklist(row):
     return checklist
 
 
+def _is_govcon_source(row):
+    src = safe_text(row.get("source")).lower()
+    return "govcon" in src or "sam" in src
+
+
+def _ai_review_weight(row):
+    status = safe_text(row.get("ai_review_status")).lower()
+    if status == "applied":
+        return 3
+    if status == "proposal_ready":
+        return 2
+    if status:
+        return 1
+    return 0
+
+
+def _data_weight(row):
+    important = ["ai_summary", "requirements", "disqualifiers", "synopsis", "description"]
+    return sum(1 for f in important if len(safe_text(row.get(f))) > 30)
+
+
+def _primary_row(group):
+    def key(r):
+        return (_is_govcon_source(r), _ai_review_weight(r), _data_weight(r))
+    return max(group, key=key)
+
+
+def dedup_rows_by_notice_id(rows):
+    from collections import defaultdict
+    by_id = defaultdict(list)
+    seen_without_id = []
+    for row in rows:
+        nid = safe_text(row.get("notice_id"))
+        if nid:
+            by_id[nid].append(row)
+        else:
+            seen_without_id.append(row)
+
+    result = []
+    for nid, group in by_id.items():
+        primary = _primary_row(group)
+        if len(group) > 1:
+            all_sources = sorted(set(safe_text(r.get("source")) for r in group if safe_text(r.get("source"))))
+            if len(all_sources) > 1:
+                primary["merged_sources"] = ", ".join(all_sources)
+                primary["source_count"] = str(len(all_sources))
+            else:
+                primary["merged_sources"] = all_sources[0] if all_sources else ""
+                primary["source_count"] = str(len(group))
+        result.append(primary)
+    result.extend(seen_without_id)
+    return result
+
+
 def enriched_opportunities():
     _fieldnames, rows = read_state()
+    rows = dedup_rows_by_notice_id(rows)
     notes_index = notes_by_notice()
     for row in rows:
         notice_id = safe_text(row.get("notice_id"))
@@ -1580,14 +1637,13 @@ def action_run_ai_review(notice_id):
     notice_id = safe_notice_id(notice_id)
     if not notice_id:
         return invalid_notice_response()
-    row = row_for_notice(notice_id)
     if not local_documents_exist(notice_id):
         return {
             "status": "error",
             "message": "No local documents found. Upload documents first before running AI review.",
         }
 
-    downloads_dir, docs_folder = working_documents_dir(notice_id)
+    _downloads_dir, docs_folder = working_documents_dir(notice_id)
     extracted_zips, extraction_error = extract_zip_files(docs_folder)
     if extraction_error:
         return {
@@ -1602,30 +1658,9 @@ def action_run_ai_review(notice_id):
             "extracted_zips": extracted_zips,
         }
 
-    commands = [
-        [sys.executable, "src/local_document_extractor.py", "--notice-id", notice_id, "--downloads-dir", downloads_dir],
-        [sys.executable, "src/bid_no_bid_analyzer.py", "--notice-id", notice_id],
-        [sys.executable, "src/solicitation_parser.py", "--notice-id", notice_id],
-        [sys.executable, "src/pricing_schedule_extractor.py", "--notice-id", notice_id, "--downloads-dir", downloads_dir],
-    ]
-    ok, summaries = run_backend_commands(notice_id, commands)
-    if ok:
-        refresh_row_after_artifacts(notice_id, "Development")
-        backfill = run_card_field_backfill(notice_id, "Development", "AI review complete")
-        append_note(notice_id, "general_note", "AI review completed from dashboard; moved to Development.", "Development", "dashboard_action")
-        return {
-            "status": "ok",
-            "message": backfill["message"],
-            "commands": summaries,
-            "extracted_zips": extracted_zips,
-            "backfill": backfill,
-            "fields_filled": backfill.get("fields_filled", []),
-            "card_data": backfill.get("card_data", {}),
-            "backfill_error": backfill.get("backfill_error", ""),
-            "macro_stage": "Development",
-        }
-    append_note(notice_id, "risk_note", "AI review failed; operator review required.", row.get("macro_stage", ""), "dashboard_action")
-    return {"status": "error", "message": "AI review failed. Opportunity was not advanced.", "commands": summaries, "extracted_zips": extracted_zips}
+    result, _status = run_structured_ai_review(notice_id)
+    result["extracted_zips"] = extracted_zips
+    return result
 
 
 def action_extract_documents(notice_id):
@@ -2297,6 +2332,7 @@ def post_ai_status_payload(raw_notice_id):
         "compliance_matrix": REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_compliance_matrix.md",
         "sources_sought_plan": REPORTS_DIR / "sources_sought" / f"{notice_id}_sources_sought_plan.md",
         "bid_price_sanity": REPORTS_DIR / "pricing" / f"{notice_id}_bid_price_sanity.md",
+        "ai_review": REPORTS_DIR / "ai_reviews" / f"{notice_id}_ai_review.md",
     }
     reports_found = [label for label, path in report_paths.items() if path.exists()]
     definitely_post_ai = bool(reports_found)
@@ -2438,6 +2474,9 @@ def workspace_chat(notice_id, message):
         "Your job:\n"
         "- Explain what this opportunity requires.\n"
         "- Identify the next action.\n"
+        "- Capture dashboard-ready facts in a structured way: summary, requirements, disqualifiers, missing documents, "
+        "site visit, submission method, pricing readiness, vendor/subcontractor needs, prime/team/pass recommendation, "
+        "and next action.\n"
         "- Draft buyer emails, vendor quote requests, compliance checklists, proposal outlines, "
         "source-sought responses, and submission materials.\n"
         "- Flag risks, disqualifiers, licensing requirements, past performance issues, site visit requirements, "
@@ -2591,6 +2630,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.handle_fetch_synopsis()
             if parsed.path == "/api/extract-documents":
                 return self.handle_extract_documents()
+            if parsed.path == "/api/run-ai-review":
+                return self.handle_run_ai_review()
+            if parsed.path == "/api/apply-ai-review":
+                return self.handle_apply_ai_review()
             if parsed.path == "/api/auto-archive-pastdue":
                 return self.handle_auto_archive_pastdue()
             if parsed.path.startswith("/api/upload/"):
@@ -2704,6 +2747,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return json_response(self, invalid_notice_response(), 400)
         result = action_extract_documents(notice_id)
         status_code = 200 if result.get("status") == "ok" else 400
+        return json_response(self, result, status_code)
+
+    def handle_run_ai_review(self):
+        payload = self.read_json_body()
+        notice_id = safe_notice_id(payload.get("notice_id"))
+        if not notice_id:
+            return json_response(self, invalid_notice_response(), 400)
+        if not local_documents_exist(notice_id):
+            return json_response(self, {
+                "status": "error",
+                "message": "No local documents found. Upload documents first before running AI review.",
+            }, 400)
+        result = action_run_ai_review(notice_id)
+        status_code = 200 if result.get("status") == "ok" else 400
+        return json_response(self, result, status_code)
+
+    def handle_apply_ai_review(self):
+        payload = self.read_json_body()
+        notice_id = safe_notice_id(payload.get("notice_id"))
+        if not notice_id:
+            return json_response(self, invalid_notice_response(), 400)
+        result, status_code = run_ai_review_apply(notice_id, payload.get("proposed_update"))
         return json_response(self, result, status_code)
 
     def handle_upload(self, notice_id):

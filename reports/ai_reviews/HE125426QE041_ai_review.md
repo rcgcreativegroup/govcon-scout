@@ -1,0 +1,68 @@
+# AI Review - HE125426QE041
+
+- Review timestamp: 2026-05-26T00:00:00Z
+- Hard disqualifier found: True
+- Hard disqualifier summary: Site visit access deadline of May 14, 2026 at 1:00 PM EDT and question deadline of May 22, 2026 at 4:00 PM EDT appear to have passed based on available documents. Operator must immediately validate whether site visit attendance was mandatory or strongly recommended, and whether late questions are accepted. If site visit was mandatory and attendance is unrecoverable, this may constitute a hard disqualifier. Recommend operator contact Contracting Officer or Contract Specialist to confirm status before proceeding with quote preparation.
+
+## Summary
+This solicitation requires comprehensive Integrated Pest Management services for DoDEA Fort Campbell facilities comprising six schools and supporting buildings totaling approximately 1 million square feet across nearly 280 acres. The contractor must provide biannual ant/roach treatment with 90-day warranty, monthly field/turf treatment targeting mosquitoes/spiders/nuisance pests, as-needed termite treatment with 3-year warranty, bi-monthly wasp/bee inspection and treatment with 2-hour urgent response capability, and quarterly rodent/small animal control including wildlife response. The opportunity appears structured as firm-fixed-price with base year July 1, 2026 through June 30, 2027, four 1-year option periods, and one 6-month extension option. Site visits occurred May 18-19, 2026; base access coordination required personnel information submission by May 14, 2026 at 1:00 PM EDT. Question deadline was May 22, 2026 at 4:00 PM EDT. Quotes due June 2, 2026 at 4:00 PM EDT via PIEE Solicitation Module. Historical comparable awards range $1,213,386 to $3,908,553 with median $1,880,183. Operator must validate whether site visit non-attendance creates material competitiveness disadvantage and obtain qualified pest control subcontractor quotes covering all CLINs, periods, warranty obligations, and emergency response requirements before finalizing pricing.
+
+## Improved Synopsis
+DoDEA Fort Campbell requires firm-fixed-price Integrated Pest Management services for six schools and support facilities totaling approximately 1 million square feet across 280 acres. Services include: biannual interior/exterior ant/roach treatment with 90-day warranty; monthly field/turf treatment for mosquitoes, spiders, and nuisance pests; as-needed termite treatment with 3-year warranty; bi-monthly wasp/bee inspections with 2-hour urgent response; quarterly rodent/small animal control including wildlife response (snakes, skunks, raccoons, groundhogs). Base period July 1, 2026 through June 30, 2027, with four 1-year option periods and one 6-month extension option. All treatments require COR coordination, service documentation within 5 business days, and no-cost re-treatment within warranty periods. Site visits occurred May 18-19, 2026; access required advance base entry coordination. Quotes due June 2, 2026, 4:00 PM EDT via PIEE Solicitation Module. Total Small Business set-aside. Evaluation equally weighted: Technical Capability and Price.
+
+## Requirements
+- Biannual interior/exterior ant/roach treatment covering facilities plus 30-foot perimeter with 90-day warranty and no-cost re-treatment if pest activity persists
+- Monthly pest control for all facilities and athletic fields targeting mosquitoes, spiders, snails, slugs, bats, centipedes, caterpillars, and other nuisance pests
+- As-needed termite inspection and treatment with minimum 3-year warranty; re-treatment at no cost within warranty period if termite activity reoccurs
+- Bi-monthly wasp/bee inspections covering playground equipment, canopies, walkways, fencing; 2-hour response for urgent requests authorized by COR
+- Quarterly rodent/small animal control including wildlife response for snakes, skunks, raccoons, groundhogs; traps must be safe for child environments
+- Active SAM registration at time of quote submittal; FAR 52.212-3 representations and certifications required
+- Service reports due within 5 business days after each treatment documenting date, location, pest type, products used, follow-up actions
+- Fort Campbell base access coordination; contractor personnel require installation access clearance and proper badging
+
+## Disqualifiers
+- Site visit occurred May 18-19, 2026 with base access deadline May 14, 2026 at 1:00 PM EDT; operator must confirm whether non-attendance affects competitiveness or constitutes disqualifier
+- Question deadline was May 22, 2026 at 4:00 PM EDT; deadline appears to have passed based on available documents; operator must validate whether late questions are accepted
+- Submission requires PIEE Solicitation Module; email courtesy copies do not constitute official submission
+- Noncompliant quotes or quotes exceeding page limits may be removed from evaluation per solicitation instructions
+- Contractor personnel must hold current commercial pest applicator certifications; private applicator or technician certifications not acceptable
+- All pest control products and methods must comply with federal, state, local regulations and be safe for use in school environments with children present
+- Failure to provide sufficient price information to allow evaluation may result in quote rejection
+- Missing or incomplete pricing schedule (Attachment #4) may result in rejection
+
+## Operational Status
+- Site visit: Site visits occurred May 18-19, 2026 at 0800 EDT each day. Base access requests required submission of full name, DOB, and contact information to Angela.Graben@dodea.edu by May 14, 2026 at 1:00 PM EDT. Based on current date context, these deadlines appear to have passed. Operator must confirm whether site visit attendance was mandatory, strongly recommended, or optional, and whether non-attendance materially affects technical evaluation or site understanding.
+- Submission: Quote due June 2, 2026 at 4:00 PM EDT (16:00 Eastern Time). Official submission required via PIEE Solicitation Module (https://piee.eb.mil/). Email courtesy copy permitted to Contract Specialist but does not constitute official submission. Quote must include: (1) Technical Volume (15-page limit, MS Word), (2) Price Volume (completed Attachment #4 pricing schedule, MS Excel), (3) Representations and Certifications (FAR 52.212-3, no page limit), and signed solicitation copy with amendments. Offeror must be registered in SAM at time of submittal.
+- Pricing: Pricing schedule extracted with 26 CLIN rows across base year (7/1/2026-6/30/2027) and four option years plus 6-month extension (through 12/31/2031). All unit price fields blank. Historical comparable awards range $1,213,386 to $3,908,553 (median $1,880,183) but scope, facility size, period length, and CLIN structure require validation. Firm-fixed-price structure with 90-day warranty on most treatments and 3-year warranty on termite work creates re-treatment cost exposure if pricing does not include contingency. Blank unit prices and formula-driven totals require qualified pest control subcontractor quotes covering labor, materials, travel, mobilization, insurance, certifications, reporting, callbacks, and warranty obligations across all periods before pricing can be finalized.
+- Prime/team: Teaming recommended unless offeror holds current commercial pest applicator certifications, Fort Campbell installation access history, qualified IPM personnel, and capacity to deliver biannual, monthly, bi-monthly, quarterly, and emergency services across 1 million square feet and 280 acres. Prime control risk is elevated due to installation access requirements, school coordination complexity, child-safe product restrictions, warranty re-treatment obligations, and 2-hour urgent response requirement. Subcontracting pest control execution to qualified local or regional IPM provider with DoDEA or military installation experience is strongly recommended. Prime role should focus on contract administration, COR coordination, quality oversight, and compliance documentation if core pest control delivery is subcontracted.
+- Next action: Operator must immediately: (1) Confirm whether site visit attendance was mandatory and whether non-attendance disqualifies or materially harms competitiveness; (2) Validate question deadline and determine if late RFI submission is permitted; (3) Contact qualified pest control subcontractors with Fort Campbell or military installation IPM experience to request quotes covering all CLINs, base and option periods, warranty obligations, and emergency response requirements; (4) Review PIEE Solicitation Module registration and access before June 2 deadline; (5) If site visit was mandatory and missed, or if subcontractor quotes cannot be secured in time, recommend no-bid.
+
+## Documents Found
+- Solicitation (26QE041_SOL_050626.pdf, 2.2 MB)
+- Performance Work Statement (ATT_1_26QE041_PWS_042726.pdf, 312 KB)
+- Pricing Schedule (ATT_4__Pricing_Schedule.xlsx, 12 KB, 26 CLIN rows extracted)
+- Facilities Information (ATT_2_26QE041_Campbell_Facilities_Information.pdf, 31 KB)
+- Facilities Footprint Map (ATT3_26QE041_DoDEA_Facilities_Footprint_Map_Campbell.pdf, 923 KB)
+- Compliance Matrix (HE125426QE041_compliance_matrix.md)
+- Decision Report (HE125426QE041_decision_report.md)
+- USAspending Market Intel (HE125426QE041_usaspending_intel.md, 35 historical awards, $1.2M-$3.9M range)
+
+## Documents Missing
+- SF1449 or executed solicitation cover page with final amendment status
+- Formal amendment register or amendment history document
+- Signed past performance questionnaire template or reference format
+- Quality Control Plan template or required format guidance
+- Pest Management Plan (PMP) referenced in PWS Section 1.2 but not found in attachment package
+- Wage determination (if applicable for service contract labor)
+- Site visit attendance roster or sign-in sheet confirming attendance window
+- Clarification or Q&A log if questions were submitted and answered
+
+## Operator Questions
+- Was site visit attendance on May 18-19, 2026 mandatory, strongly recommended, or optional? Does non-attendance create a material evaluation disadvantage or disqualification?
+- Did we submit personnel information for base access by the May 14, 2026 1:00 PM EDT deadline? If not, can late access requests be accommodated?
+- Did we submit questions by May 22, 2026 4:00 PM EDT deadline? If deadline passed, will government accept late questions or issue final Q&A log?
+- Do we have qualified commercial pest applicator personnel on staff, or must we subcontract all pest control execution to a licensed IPM provider?
+- Do we have existing Fort Campbell installation access, or will subcontractor personnel require new badging and background checks before contract start?
+- Can we obtain firm quotes from qualified pest control subcontractors covering all CLINs, warranty re-treatment obligations, and emergency response requirements before June 2 deadline?
+- Does our SAM registration remain active and current, and do we have PIEE Solicitation Module access credentials confirmed before submission deadline?
+- What is our competitive position given historical awards to incumbents PESTMASTER SERVICES, ALLEYMOR, TITAN ASSOCIATES, and AMERICAN PEST MANAGEMENT? Do we have differentiated technical approach or price advantage?

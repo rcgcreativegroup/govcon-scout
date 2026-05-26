@@ -163,21 +163,33 @@
       color: #2a2a2e;
       background: transparent;
     }
-    .workflow-stage-confirm {
-      position: absolute;
-      top: calc(100% + 2px);
-      left: var(--confirm-left, 12px);
+    .workflow-stage.pending {
+      border-color: #f0a500;
       color: #f0a500;
-      background: #0a0a0c;
-      border: 1px solid #2a2a2e;
-      padding: 4px 6px;
-      font: 11px "Courier New", monospace;
-      z-index: 30;
+      background: transparent;
+    }
+    .workflow-stage-confirm {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: #f0a500;
+      background: #1a1200;
+      border: 1px solid #f0a500;
+      padding: 2px 6px;
+      font: 9px "Courier New", monospace;
+      line-height: 1;
+      white-space: nowrap;
     }
     .workflow-stage-confirm button {
-      font-size: 10px;
-      padding: 2px 7px;
-      margin-left: 5px;
+      font-size: 9px;
+      padding: 1px 5px;
+    }
+    .workflow-stage-confirm.error { color: #ff4444; border-color: #ff4444; background: #1a0505; }
+    .workflow-nav-hint {
+      margin-left: auto;
+      color: #333333;
+      font: 9px "Courier New", monospace;
+      white-space: nowrap;
     }
     .main {
       display: grid;
@@ -503,11 +515,23 @@
     }
     .note-meta { color: var(--secondary); font-size: 10px; margin-bottom: 3px; }
     .nav-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
-    .keyboard-legend {
-      margin-top: 10px;
+    .shortcut-badge {
+      font: 9px "Courier New", monospace;
+      padding: 1px 4px;
+      background: #1a1a1e;
+      border: 1px solid #2a2a2e;
+      border-radius: 2px;
       color: #555555;
-      font: 10px "Courier New", monospace;
-      text-align: center;
+      margin-left: 5px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
     }
     .status-line {
       color: var(--secondary);
@@ -542,6 +566,57 @@
       color: var(--cyan);
       font-size: 10px;
       margin-top: 4px;
+    }
+    .ai-review-proposal {
+      margin-top: 8px;
+      border: 1px solid #2a2a2e;
+      background: #101012;
+      color: var(--secondary);
+      padding: 10px;
+    }
+    .ai-review-proposal h4 {
+      margin: 0 0 6px;
+      color: var(--cyan);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .ai-review-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .ai-review-box {
+      border: 1px solid #1e1e22;
+      background: #0e0e10;
+      padding: 8px;
+      min-width: 0;
+    }
+    .ai-review-box strong {
+      display: block;
+      color: #8fbcd4;
+      margin-bottom: 4px;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .ai-review-box ul {
+      margin: 0;
+      padding-left: 16px;
+    }
+    .ai-review-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 9px;
+    }
+    .ai-hard-alert {
+      border: 1px solid var(--red);
+      background: #1a0505;
+      color: var(--red);
+      padding: 8px;
+      margin-top: 8px;
+      font-weight: 700;
     }
     .source-row {
       margin-top: 7px;
@@ -616,8 +691,13 @@
       margin-bottom: 7px;
     }
     .shortcut-hint {
+      font: 9px "Courier New", monospace;
+      padding: 1px 4px;
+      background: #1a1a1e;
+      border: 1px solid #2a2a2e;
+      border-radius: 2px;
       color: #555555;
-      font: 10px "Courier New", monospace;
+      margin-left: 5px;
     }
     .triage-box .checklist {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1066,6 +1146,12 @@
     let pendingStageOverride = "";
     let pendingWorkflowStageOverride = "";
     let workflowStageConfirmLeft = 12;
+    let pendingStage = null;
+    let stageConfirmTimer = null;
+    let stageNavActive = false;
+    let stageNavBubbleVisible = false;
+    let stageNavAutoCancelTimer = null;
+    let stageNavError = "";
     const postAiStatusCache = new Map();
     const postAiStatusPending = new Set();
     const autoSynopsisAttemptedNoticeIds = new Set();
@@ -1086,6 +1172,21 @@
     const isFlagged = row => ["true", "yes", "y", "1", "flagged"].includes(textOf(row.flagged).trim());
     const isWatched = row => ["true", "yes", "y", "1"].includes(textOf(row.watch_list).trim());
     const containsAny = (value, terms) => terms.some(term => textOf(value).includes(term));
+    const shortcutBadge = label => `<span class="shortcut-badge">${h(label)}</span>`;
+    const ACTION_SHORTCUTS = {
+      "Open AI Workspace": "A",
+      "YES — Intake Docs": "Y",
+      "Move Forward": "G",
+      "Manual Review": "M",
+      "Run AI Review": "R",
+      "Log Vendor Quote": "Q",
+      "Draft Response": "D",
+      "Mark Ready to Submit": "R",
+      "Prepare SAM Docs": "Prep",
+      "Bypass to AI Review": "R",
+      "PASS": "P",
+      "Flag / Hold": "F",
+    };
     const setAsideText = row => [row.set_aside, row.set_aside_type, row.set_aside_description].filter(hasMeaningful).join(" ");
     const setAsideEligibility = row => {
       const text = textOf(setAsideText(row));
@@ -1136,7 +1237,7 @@
     async function api(path, options = {}) {
       const response = await fetch(path, options);
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || "Request failed");
+      if (!response.ok) throw new Error(data.error || data.message || "Request failed");
       return data;
     }
 
@@ -1247,6 +1348,7 @@
       document.querySelectorAll("#filters button").forEach(btn => {
         btn.onclick = () => {
           clearActionResult();
+          cancelStageNavigation(null, false);
           pendingStageOverride = "";
           pendingWorkflowStageOverride = "";
           activeFilter = btn.dataset.stage;
@@ -1260,6 +1362,7 @@
         sortMode = event.target.value;
         activeIndex = 0;
         clearActionResult();
+        cancelStageNavigation(null, false);
         pendingStageOverride = "";
         pendingWorkflowStageOverride = "";
         render();
@@ -1517,6 +1620,7 @@
       document.querySelectorAll(".queue-item").forEach(item => {
         item.onclick = () => {
           clearActionResult();
+          cancelStageNavigation(null, false);
           pendingStageOverride = "";
           pendingWorkflowStageOverride = "";
           activeIndex = Number(item.dataset.index);
@@ -1763,19 +1867,24 @@
       const stages = config.stage_enums?.stages || [];
       const stage = row ? currentStage(row) : "";
       const current = stages.indexOf(stage);
-      const confirm = pendingWorkflowStageOverride
-        ? `<div class="workflow-stage-confirm" style="--confirm-left:${workflowStageConfirmLeft}px">Move to ${h(pendingWorkflowStageOverride)}? <button class="warn" id="workflowStageConfirmBtn">Confirm</button><button id="workflowStageCancelBtn">Cancel</button></div>`
+      const confirm = stageNavActive && pendingStage && stageNavBubbleVisible
+        ? `<div class="workflow-stage-confirm${stageNavError ? " error" : ""}">${stageNavError ? h(stageNavError) : `Move to ${h(pendingStage)}?`} <button class="warn" id="workflowStageConfirmBtn">Enter ↵</button><button id="workflowStageCancelBtn">Esc</button></div>`
+        : pendingWorkflowStageOverride
+        ? `<div class="workflow-stage-confirm">Move to ${h(pendingWorkflowStageOverride)}? <button class="warn" id="workflowStageConfirmBtn">Enter ↵</button><button id="workflowStageCancelBtn">Esc</button></div>`
         : "";
       container.innerHTML = `
         <div class="workflow-ribbon">${stages.map((s, i) => {
-          const klass = s === stage ? "current" : i < current ? "done" : "future";
+          const klass = (stageNavActive && s === pendingStage) || s === pendingWorkflowStageOverride ? "pending" : s === stage ? "current" : i < current ? "done" : "future";
           return `<span class="workflow-stage ${klass}" data-workflow-stage="${h(s)}">${h(s)}</span>`;
-        }).join("")}</div>
-        ${confirm}`;
+        }).join("")}${confirm}<span class="workflow-nav-hint">← →  ·  ↑↓ stage  ·  ↵ confirm  ·  Esc cancel</span></div>`;
       container.querySelectorAll("[data-workflow-stage]").forEach(stageEl => {
         stageEl.onclick = () => {
           if (!row) return;
           const targetStage = stageEl.dataset.workflowStage;
+          if (stageNavActive && targetStage === pendingStage) {
+            confirmPendingStageChange(row);
+            return;
+          }
           if (!targetStage || targetStage === currentStage(row)) return;
           const rowRect = container.getBoundingClientRect();
           const stageRect = stageEl.getBoundingClientRect();
@@ -1786,15 +1895,25 @@
       });
       const cancel = document.getElementById("workflowStageCancelBtn");
       if (cancel) cancel.onclick = () => {
+        if (stageNavActive) {
+          cancelStageNavigation(row);
+          return;
+        }
         pendingWorkflowStageOverride = "";
         renderWorkflowRibbon(row);
       };
       const confirmBtn = document.getElementById("workflowStageConfirmBtn");
-      if (confirmBtn) confirmBtn.onclick = () => confirmWorkflowStageOverride(row);
+      if (confirmBtn) confirmBtn.onclick = () => {
+        if (stageNavActive) confirmPendingStageChange(row);
+        else confirmWorkflowStageOverride(row);
+      };
     }
 
     function splitList(value) {
-      return String(value || "").split("|").map(v => v.trim()).filter(Boolean);
+      return String(value || "")
+        .split(/\n+|\|/)
+        .map(v => v.replace(/^[\s\-•]+/, "").trim())
+        .filter(Boolean);
     }
 
     function renderList(value) {
@@ -2079,7 +2198,7 @@
       return `
         <div class="triage-grid">
           <div class="triage-box">
-            <div class="hero-label">Set-Aside</div>
+            <div class="label-row"><div class="hero-label">Set-Aside</div>${shortcutBadge("[W]")}</div>
             ${renderSetAsideFact(row)}
           </div>
           <div class="triage-box">
@@ -2091,7 +2210,7 @@
 
     function renderDescriptionBox(row) {
       const hint = !synopsisText(row) && !descriptionBodyText(row)
-        ? `<span class="shortcut-hint">S fetch synopsis</span>`
+        ? `<span class="shortcut-hint">[S]</span>`
         : "";
       return `
         <div class="description-box">
@@ -2300,6 +2419,7 @@
           <div>${h(actionResult.message || "")}</div>
           ${fields}
           ${updated}
+          ${renderAiReviewProposal(actionResult)}
         </div>`;
     }
 
@@ -2307,12 +2427,81 @@
       actionResult = result;
       const slot = document.getElementById("actionResultSlot");
       if (slot) slot.innerHTML = renderActionResult();
+      wireAiReviewProposalActions();
     }
 
     function clearActionResult() {
       actionResult = null;
       const slot = document.getElementById("actionResultSlot");
       if (slot) slot.innerHTML = "";
+    }
+
+    function renderObjectFacts(value) {
+      if (!value || typeof value !== "object") return `<span class="muted">not available</span>`;
+      const entries = Object.entries(value).filter(([, v]) => hasMeaningful(v));
+      if (!entries.length) return `<span class="muted">not available</span>`;
+      return `<ul>${entries.map(([key, v]) => `<li><b>${h(key)}:</b> ${h(v)}</li>`).join("")}</ul>`;
+    }
+
+    function renderAiReviewProposal(result) {
+      const proposal = result.proposed_update;
+      if (!proposal) return "";
+      const review = result.review || {};
+      const hard = review.hard_disqualifier_found || proposal.hard_disqualifier_found === "true";
+      const hardSummary = review.hard_disqualifier_summary || proposal.hard_disqualifier_summary || "Potential hard disqualifier requires operator confirmation.";
+      return `
+        <div class="ai-review-proposal">
+          <h4>AI Review Proposed Card Update</h4>
+          ${hard ? `<div class="ai-hard-alert">Hard disqualifier signal: ${h(hardSummary)}</div>` : ""}
+          <div class="ai-review-grid">
+            <div class="ai-review-box"><strong>AI summary</strong>${h(proposal.ai_summary || "not available")}</div>
+            <div class="ai-review-box"><strong>Improved synopsis</strong>${h(proposal.synopsis || proposal.description || "not available")}</div>
+            <div class="ai-review-box"><strong>Requirements</strong>${renderList(proposal.requirements)}</div>
+            <div class="ai-review-box"><strong>Disqualifiers</strong>${renderList(proposal.disqualifiers)}</div>
+            <div class="ai-review-box"><strong>Documents found</strong>${renderList(proposal.document_status)}</div>
+            <div class="ai-review-box"><strong>Documents missing</strong>${renderList(proposal.documents_missing)}</div>
+            ${proposal.place_of_performance ? `<div class="ai-review-box"><strong>Place of performance</strong>${h(proposal.place_of_performance)}</div>` : ""}
+            <div class="ai-review-box"><strong>Site visit</strong>${h(proposal.site_visit_status || "not available")}</div>
+            <div class="ai-review-box"><strong>Submission</strong>${h(proposal.submission_status || "not available")}</div>
+            <div class="ai-review-box"><strong>Pricing</strong>${h(proposal.pricing_status || "not available")}</div>
+            <div class="ai-review-box"><strong>Prime/team</strong>${h(proposal.prime_or_teaming_recommendation || "not available")}</div>
+            <div class="ai-review-box"><strong>Next action</strong>${h(proposal.recommended_next_action || "not available")}</div>
+            <div class="ai-review-box"><strong>Review timestamp</strong>${h(proposal.review_timestamp || review.review_timestamp || "not available")}</div>
+            <div class="ai-review-box"><strong>Source basis</strong>${renderObjectFacts(review.source_basis)}</div>
+            <div class="ai-review-box"><strong>Confidence</strong>${renderObjectFacts(review.confidence)}</div>
+          </div>
+          <div class="ai-review-actions">
+            <button class="go" id="applyAiReviewBtn">Apply to Card</button>
+            <button id="cancelAiReviewBtn">Cancel</button>
+            ${hard ? `
+              <button id="continueAiReviewBtn">Continue Review</button>
+              <button class="warn" id="manualAiReviewBtn">Move to Manual Review</button>
+              <button class="risk" id="passAiReviewBtn">PASS</button>
+            ` : ""}
+          </div>
+        </div>`;
+    }
+
+    function wireAiReviewProposalActions() {
+      const row = filteredItems()[activeIndex];
+      const apply = document.getElementById("applyAiReviewBtn");
+      if (apply && row) apply.onclick = () => applyAiReview(row);
+      const cancel = document.getElementById("cancelAiReviewBtn");
+      if (cancel) cancel.onclick = () => {
+        statusMessage = "AI Review proposal cancelled.";
+        clearActionResult();
+        render();
+      };
+      const cont = document.getElementById("continueAiReviewBtn");
+      if (cont) cont.onclick = () => {
+        statusMessage = "Continuing review without card or stage changes.";
+        clearActionResult();
+        render();
+      };
+      const manual = document.getElementById("manualAiReviewBtn");
+      if (manual && row) manual.onclick = () => updateStage(row, "Manual Review", "risk_note", "AI Review found a potential hard disqualifier requiring manual review.", "manual_review", "Moved to Manual Review.");
+      const pass = document.getElementById("passAiReviewBtn");
+      if (pass && row) pass.onclick = () => handleButton(row, "PASS");
     }
 
     function applyCardData(row, result) {
@@ -2377,6 +2566,7 @@
           <div>
             <div class="title">${h(row.title || "untitled opportunity")}</div>
             <div class="subtle">${h(row.source || "source n/a")} | ${h(noticeId(row))}</div>
+            ${row.merged_sources && row.merged_sources !== row.source ? `<div class="subtle" style="color:#9966ff;font-size:9px;letter-spacing:.04em;">⬡ Sources: ${h(row.merged_sources)}</div>` : ""}
             ${renderSourceRow(row)}
           </div>
           <div>
@@ -2399,9 +2589,9 @@
           <span class="subtle">${activeIndex + 1} / ${items.length}</span>
           <button id="nextBtn">Next</button>
         </div>
-        <div class="keyboard-legend">J next · K prev · N pass · H hold · U pursue · S synopsis · W watch list · / search</div>
       `;
       wireCardEvents(row, items);
+      wireAiReviewProposalActions();
     }
 
     function flashStatus(message, ms = 1000) {
@@ -2531,13 +2721,14 @@
       const stage = currentStage(row);
       stageNameEl.textContent = stage;
       const aiBtn = isInActionQueue(row)
-        ? `<button data-sticky-action="Open AI Workspace" style="border:1px solid #9966ff;color:#9966ff;background:transparent;font:11px 'Courier New',monospace;padding:4px 10px;cursor:pointer;">Open AI Workspace</button>`
+        ? `<button data-sticky-action="Open AI Workspace" style="border:1px solid #9966ff;color:#9966ff;background:transparent;font:11px 'Courier New',monospace;padding:4px 10px;cursor:pointer;">Open AI Workspace${shortcutBadge(ACTION_SHORTCUTS["Open AI Workspace"])}</button>`
         : "";
       actionsEl.innerHTML = aiBtn + (BUTTONS[stage] || []).map(label => {
         const klass = label.includes('PASS') || label.includes('Disqualifier') ? 'risk'
           : label.includes('Manual') || label.includes('Park') || label.includes('Back') ? 'warn'
           : 'go';
-        return `<button class="${h(klass)}" data-sticky-action="${h(label)}">${h(label)}</button>`;
+        const badge = ACTION_SHORTCUTS[label] ? shortcutBadge(ACTION_SHORTCUTS[label]) : "";
+        return `<button class="${h(klass)}" data-sticky-action="${h(label)}">${h(label)}${badge}</button>`;
       }).join('');
       actionsEl.querySelectorAll('[data-sticky-action]').forEach(btn => {
         btn.onclick = () => handleButton(row, btn.dataset.stickyAction);
@@ -2646,7 +2837,7 @@
         pendingStageOverride = "";
         pendingWorkflowStageOverride = "";
         render();
-        return;
+        return false;
       }
       const updatedStage = result.stage || result.macro_stage || nextStage;
       const updatedRow = opportunities.find(item => item.notice_id === row.notice_id) || row;
@@ -2673,6 +2864,96 @@
       updateStickyBar(updatedRow);
       renderWorkflowRibbon(updatedRow);
       requestAnimationFrame(adjustLayout);
+      return true;
+    }
+
+    function stageNavStages() {
+      const configured = config.stage_enums?.stages || [];
+      return STAGE_ORDER.filter(stage => configured.includes(stage) || !configured.length);
+    }
+
+    function clearStageNavTimers() {
+      if (stageConfirmTimer) clearTimeout(stageConfirmTimer);
+      if (stageNavAutoCancelTimer) clearTimeout(stageNavAutoCancelTimer);
+      stageConfirmTimer = null;
+      stageNavAutoCancelTimer = null;
+    }
+
+    function resetStageNavigationState() {
+      clearStageNavTimers();
+      pendingStage = null;
+      stageNavActive = false;
+      stageNavBubbleVisible = false;
+      stageNavError = "";
+    }
+
+    function cancelStageNavigation(row, rerender = true) {
+      resetStageNavigationState();
+      if (rerender) renderWorkflowRibbon(row || filteredItems()[activeIndex]);
+    }
+
+    function showStageConfirmBubble(row) {
+      if (!stageNavActive || !pendingStage) return;
+      stageNavBubbleVisible = true;
+      renderWorkflowRibbon(row);
+      if (stageNavAutoCancelTimer) clearTimeout(stageNavAutoCancelTimer);
+      stageNavAutoCancelTimer = setTimeout(() => {
+        cancelStageNavigation(row);
+      }, 5000);
+    }
+
+    function scheduleStageConfirmBubble(row) {
+      if (stageConfirmTimer) clearTimeout(stageConfirmTimer);
+      if (stageNavAutoCancelTimer) clearTimeout(stageNavAutoCancelTimer);
+      stageNavBubbleVisible = false;
+      stageNavError = "";
+      stageConfirmTimer = setTimeout(() => {
+        showStageConfirmBubble(row);
+      }, 500);
+    }
+
+    function movePendingStage(row, direction) {
+      const stages = stageNavStages();
+      const baseStage = pendingStage || currentStage(row);
+      const index = stages.indexOf(baseStage);
+      if (index < 0) return;
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= stages.length) return;
+      pendingStage = stages[nextIndex];
+      stageNavActive = true;
+      pendingWorkflowStageOverride = "";
+      scheduleStageConfirmBubble(row);
+      renderWorkflowRibbon(row);
+    }
+
+    async function confirmPendingStageChange(row) {
+      if (!stageNavActive || !pendingStage || !row) return;
+      const nextStage = pendingStage;
+      clearStageNavTimers();
+      try {
+        resetStageNavigationState();
+        const ok = await applyManualStageOverride(row, nextStage);
+        if (!ok) throw new Error("Stage change failed.");
+      } catch (error) {
+        pendingStage = nextStage;
+        stageNavActive = true;
+        stageNavError = error.message || "Stage change failed.";
+        stageNavBubbleVisible = true;
+        renderWorkflowRibbon(row);
+        setTimeout(() => cancelStageNavigation(row), 1200);
+      }
+    }
+
+    function navigateCard(direction, items = filteredItems()) {
+      const previousIndex = activeIndex;
+      activeIndex = direction > 0
+        ? Math.min(items.length - 1, activeIndex + 1)
+        : Math.max(0, activeIndex - 1);
+      if (activeIndex !== previousIndex) cancelStageNavigation(null, false);
+      clearActionResult();
+      pendingStageOverride = "";
+      pendingWorkflowStageOverride = "";
+      render();
     }
 
     async function saveNote(row, type, text) {
@@ -2685,27 +2966,67 @@
       await load();
     }
 
+    async function applyAiReview(row) {
+      if (!actionResult?.proposed_update) return;
+      statusMessage = "Applying AI Review proposal...";
+      render();
+      try {
+        const result = await api("/api/apply-ai-review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notice_id: row.notice_id, proposed_update: actionResult.proposed_update })
+        });
+        const cardUpdated = applyCardData(row, result);
+        invalidatePostAiStatus(row.notice_id);
+        ensurePostAiStatus(row);
+        statusMessage = "ACTION COMPLETE — AI Review applied to card.";
+        setActionResult({
+          kind: "success",
+          message: "AI Review applied to card.",
+          fields: result.updated_fields || [],
+          cardUpdated
+        });
+        updateStickyBar(row);
+        renderCard(row, filteredItems());
+      } catch (error) {
+        statusMessage = error.message || "Apply failed.";
+        setActionResult({
+          kind: "error",
+          message: error.message || "Apply failed.",
+          fields: [],
+          cardUpdated: false
+        });
+      }
+    }
+
     async function runAction(row, action) {
       statusMessage = action === "run_ai_review" ? "AI Review running — this may take a moment." : `Running ${action}...`;
       clearActionResult();
       render();
       try {
-        const result = await api(`/api/action/${action}`, {
+        const options = {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ notice_id: row.notice_id })
-        });
+        };
+        const result = action === "run_ai_review"
+          ? await api("/api/run-ai-review", options)
+          : await api(`/api/action/${action}`, options);
         statusMessage = result.message || result.status || "Action complete.";
-        const cardUpdated = applyCardData(row, result);
+        const cardUpdated = action === "run_ai_review" ? false : applyCardData(row, result);
         if (result.status === "ok" && action === "run_ai_review") {
           invalidatePostAiStatus(row.notice_id);
           ensurePostAiStatus(row);
         }
         setActionResult({
           kind: result.status === "error" ? "error" : "success",
-          message: result.error || result.message || result.status || "Action complete.",
+          message: result.error || result.message || (action === "run_ai_review" ? "AI Review proposal generated. Review it before applying to the card." : result.status || "Action complete."),
           fields: result.fields_filled || [],
-          cardUpdated
+          cardUpdated,
+          proposed_update: result.proposed_update || null,
+          review: result.review || null,
+          review_path: result.review_path || "",
+          json_path: result.json_path || ""
         });
         renderCard(row, filteredItems());
       } catch (error) {
@@ -2892,8 +3213,8 @@
       }
       const prev = document.getElementById("prevBtn");
       const next = document.getElementById("nextBtn");
-      if (prev) prev.onclick = () => { clearActionResult(); pendingStageOverride = ""; pendingWorkflowStageOverride = ""; activeIndex = Math.max(0, activeIndex - 1); render(); };
-      if (next) next.onclick = () => { clearActionResult(); pendingStageOverride = ""; pendingWorkflowStageOverride = ""; activeIndex = Math.min(items.length - 1, activeIndex + 1); render(); };
+      if (prev) prev.onclick = () => navigateCard(-1, items);
+      if (next) next.onclick = () => navigateCard(1, items);
       const save = document.getElementById("saveNote");
       if (save) save.onclick = () => {
         const type = document.getElementById("noteType").value;
@@ -2922,6 +3243,7 @@
       searchTerm = event.target.value;
       activeIndex = 0;
       clearActionResult();
+      cancelStageNavigation(null, false);
       pendingStageOverride = "";
       pendingWorkflowStageOverride = "";
       render();
@@ -2931,48 +3253,117 @@
       document.getElementById("search").value = "";
       activeIndex = 0;
       clearActionResult();
+      cancelStageNavigation(null, false);
       pendingStageOverride = "";
       pendingWorkflowStageOverride = "";
       render();
     };
 
-    document.addEventListener("keydown", event => {
+    function operatorIsTyping(event) {
       const target = event.target;
-      const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-      if (event.key === "/" && !typing) {
-        event.preventDefault();
-        document.getElementById("search").focus();
-        return;
-      }
-      if (typing) return;
+      return target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+    }
+
+    function overlayOrModalOpen() {
+      const openIds = ["aiWorkspaceOverlay", "draftReadModal", "workspaceBrowserOverlay"];
+      if (openIds.some(id => document.getElementById(id)?.classList.contains("open"))) return true;
+      if (document.getElementById("eligibilityModal") || document.getElementById("pastDueArchiveModal")) return true;
+      return false;
+    }
+
+    function visibleStickyAction(labels) {
+      const wanted = new Set(labels);
+      const buttons = Array.from(document.querySelectorAll("#sticky-actions [data-sticky-action]"));
+      const match = buttons.find(btn => wanted.has(btn.dataset.stickyAction));
+      return match ? match.dataset.stickyAction : "";
+    }
+
+    function triggerVisibleAction(row, labels) {
+      const action = visibleStickyAction(labels);
+      if (action) handleButton(row, action);
+    }
+
+    document.addEventListener("keydown", event => {
+      if (operatorIsTyping(event)) return;
       const items = filteredItems();
       const row = items[activeIndex];
       if (!row) return;
-      if (event.key.toLowerCase() === "j") {
-        clearActionResult();
-        pendingStageOverride = "";
-        pendingWorkflowStageOverride = "";
-        activeIndex = Math.min(items.length - 1, activeIndex + 1);
-        render();
-      } else if (event.key.toLowerCase() === "k") {
-        clearActionResult();
-        pendingStageOverride = "";
-        pendingWorkflowStageOverride = "";
-        activeIndex = Math.max(0, activeIndex - 1);
-        render();
-      } else if (event.key.toLowerCase() === "n") {
-        handleButton(row, "PASS");
-      } else if (event.key.toLowerCase() === "h") {
+
+      if (stageNavActive) {
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          movePendingStage(row, 1);
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          movePendingStage(row, -1);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          confirmPendingStageChange(row);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          cancelStageNavigation(row);
+        }
+        return;
+      }
+
+      if (overlayOrModalOpen()) return;
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        navigateCard(1, items);
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        navigateCard(-1, items);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        movePendingStage(row, 1);
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        movePendingStage(row, -1);
+        return;
+      }
+      if (event.key === "Escape") return;
+
+      const key = event.key.toLowerCase();
+      if (key === "p") {
+        event.preventDefault();
+        triggerVisibleAction(row, ["PASS"]);
+      } else if (key === "f") {
+        event.preventDefault();
         toggleHold(row);
-      } else if (event.key.toLowerCase() === "w") {
+      } else if (key === "w") {
+        event.preventDefault();
         toggleWatch(row);
-      } else if (event.key.toLowerCase() === "u" && currentStage(row) === "Triage") {
-        handleButton(row, "YES — Intake Docs");
-      } else if (event.key.toLowerCase() === "s") {
+      } else if (key === "s") {
+        event.preventDefault();
         shortcutFetchSynopsis(row);
-      } else if (event.key === "Enter") {
-        const note = document.getElementById("noteText");
-        if (note) note.focus();
+      } else if (key === "y") {
+        event.preventDefault();
+        triggerVisibleAction(row, ["YES — Intake Docs"]);
+      } else if (key === "g") {
+        event.preventDefault();
+        triggerVisibleAction(row, ["Move Forward"]);
+      } else if (key === "m") {
+        event.preventDefault();
+        triggerVisibleAction(row, ["Manual Review"]);
+      } else if (key === "r") {
+        event.preventDefault();
+        triggerVisibleAction(row, ["Run AI Review", "Mark Ready to Submit", "Bypass to AI Review"]);
+      } else if (key === "a") {
+        event.preventDefault();
+        triggerVisibleAction(row, ["Open AI Workspace"]);
+      } else if (key === "q") {
+        event.preventDefault();
+        triggerVisibleAction(row, ["Log Vendor Quote"]);
+      } else if (key === "d") {
+        event.preventDefault();
+        triggerVisibleAction(row, ["Draft Response"]);
       }
     });
 
