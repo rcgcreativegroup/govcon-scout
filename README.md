@@ -63,3 +63,57 @@ reports/triage/govcon_triage_board.md
 - Mutating actions should only occur through explicit operator actions or API requests.
 - `data/opportunity_state.csv` should not be auto-repaired or rewritten on startup.
 - Maintenance and schema-repair helpers must be invoked intentionally, with CSV mutation reviewed before use.
+
+### Dashboard verification commands
+
+Use these checks before dashboard UI/backend refactors:
+
+```bash
+python -m py_compile src/operator_dashboard.py
+python -m py_compile scripts/dashboard_startup_write_check.py
+python -m py_compile scripts/dashboard_route_inventory.py
+python -m py_compile scripts/dashboard_smoke_test.py
+python -m py_compile scripts/dependency_audit.py
+python -m py_compile scripts/dashboard_frontend_audit.py
+python scripts/dashboard_startup_write_check.py
+python scripts/dashboard_route_inventory.py
+python scripts/dependency_audit.py
+python scripts/dashboard_frontend_audit.py
+```
+
+With the dashboard already running on `http://127.0.0.1:8765`, run:
+
+```bash
+python scripts/dashboard_smoke_test.py
+```
+
+### Dashboard route and audit helpers
+
+- `scripts/dashboard_smoke_test.py` checks core local routes without SAM.gov, noVNC, or USAspending.
+- `scripts/dashboard_route_inventory.py` compares dashboard backend routes with frontend `fetch()` usage and reports unmatched routes for review.
+- `scripts/dependency_audit.py` compares `requirements.txt` with imports in `src/*.py` and `scripts/*.py`; optional or lazy imports should be reviewed before changing dependencies.
+- `scripts/dashboard_frontend_audit.py` reports possible unused CSS classes, duplicate JavaScript functions, console logging, timer usage, and global state candidates. It is an inventory tool, not proof that a function or style can be deleted.
+
+### Dashboard file security
+
+- The `/file?path=...` route only serves explicit files under approved local roots and refuses directory listing.
+- Sensitive paths are denied even if they are under an approved root, including `auth.json`, `.env` files, `data/backups/`, `data/opportunity_state.csv`, `conversation_history.json`, browser/session files, `__pycache__`, and `*.pyc`.
+- Report and download links should point to explicit files, not directories.
+
+### Notice ID filesystem safety
+
+- Dashboard filesystem paths use strict `notice_id` validation where local folders or report paths are built.
+- Valid notice IDs may contain letters, numbers, dots, dashes, and underscores.
+- Empty values, absolute paths, path separators, and traversal patterns are rejected with `{"status": "error", "message": "Invalid notice_id."}`.
+- Display labels and CSV values are not rewritten for presentation; sanitization is applied at filesystem/API boundaries.
+
+### Generated file caution
+
+- Do not blindly commit generated reports, downloads, exports, manual uploads, backups, raw MyBidMatch files, browser/session files, `auth.json`, `.env`, or `data/opportunity_state.csv`.
+- Review generated outputs intentionally and keep secrets or workflow state out of commits.
+
+### Deferred dashboard cleanup
+
+- Stage order is currently duplicated between `config/stage_enums.json` and the frontend stage ribbon/keyboard logic. Backend validation reads the config; a frontend refactor should be done separately with browser verification.
+- `/api/notes/{notice_id}` has no current frontend caller but remains available for manual/legacy note inspection.
+- `src/operator_dashboard.py` remains intentionally monolithic for now; future extraction should start with pure helpers and route inventory tests before changing endpoint behavior.

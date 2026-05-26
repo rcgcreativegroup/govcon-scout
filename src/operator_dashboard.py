@@ -65,6 +65,19 @@ ALLOWED_FILE_ROOTS = [
     DATA_DIR,
 ]
 
+DENIED_FILE_NAMES = {
+    ".env",
+    "auth.json",
+    "conversation_history.json",
+    "mybidmatch_auth.json",
+}
+DENIED_FILE_SUFFIXES = {".pyc"}
+DENIED_PATH_PARTS = {
+    "__pycache__",
+    ".browser",
+    "data/backups",
+}
+
 NOTE_FIELDS = [
     "notice_id",
     "timestamp",
@@ -249,6 +262,10 @@ class RequestTooLarge(ValueError):
     def __init__(self, message, status=413):
         super().__init__(message)
         self.status = status
+
+
+def invalid_notice_response():
+    return {"status": "error", "message": "Invalid notice_id."}
 
 
 def read_json(path, default):
@@ -859,10 +876,10 @@ def allowed_stages():
 
 
 def set_stage_override(notice_id, stage):
-    notice_id = safe_text(notice_id)
+    notice_id = safe_notice_id(notice_id)
     stage = safe_text(stage)
     if not notice_id:
-        return {"status": "error", "message": "notice_id is required"}
+        return invalid_notice_response()
     if stage not in allowed_stages():
         return {"status": "error", "message": "Invalid stage"}
 
@@ -895,9 +912,9 @@ def set_stage_override(notice_id, stage):
 
 
 def set_watch_list(notice_id, watch_value):
-    notice_id = safe_text(notice_id)
+    notice_id = safe_notice_id(notice_id)
     if not notice_id:
-        return {"status": "error", "message": "notice_id is required"}
+        return invalid_notice_response()
 
     fieldnames, rows = read_state()
     schema_backup = ""
@@ -1033,6 +1050,9 @@ def row_has_text(row, *fields):
 
 
 def local_document_evidence(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return False
     folders = [
         DOWNLOADS_DIR / notice_id,
         MANUAL_UPLOADS_DIR / notice_id,
@@ -1041,6 +1061,9 @@ def local_document_evidence(notice_id):
 
 
 def local_document_folder_exists(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return False
     return (DOWNLOADS_DIR / notice_id).exists() or (MANUAL_UPLOADS_DIR / notice_id).exists()
 
 
@@ -1052,7 +1075,7 @@ def report_file_exists(notice_id, *paths):
 
 
 def infer_data_readiness(row):
-    notice_id = safe_text(row.get("notice_id"))
+    notice_id = safe_notice_id(row.get("notice_id"))
     has_docs = local_document_evidence(notice_id)
     has_doc_folder = local_document_folder_exists(notice_id)
     has_description = row_has_text(row, "description", "synopsis", "full_description", "notice_description", "body", "summary")
@@ -1134,12 +1157,14 @@ def infer_data_readiness(row):
 
 
 def related_links(row):
-    notice_id = safe_text(row.get("notice_id"))
+    notice_id = safe_notice_id(row.get("notice_id"))
     links = []
     for column, label in RELATED_PATH_COLUMNS:
         path = safe_text(row.get(column))
         if path and (BASE_DIR / path).exists():
             links.append({"label": label, "path": path})
+    if not notice_id:
+        return links
     for folder, label in [
         (DOWNLOADS_DIR / notice_id, "downloaded docs folder"),
         (MANUAL_UPLOADS_DIR / notice_id, "manual uploads folder"),
@@ -1152,7 +1177,7 @@ def related_links(row):
 
 
 def document_checklist(row):
-    notice_id = safe_text(row.get("notice_id"))
+    notice_id = safe_notice_id(row.get("notice_id"))
     text = " ".join([
         safe_text(row.get("title")),
         safe_text(row.get("description")),
@@ -1161,9 +1186,10 @@ def document_checklist(row):
         safe_text(row.get("pricing_schedule_path")),
         safe_text(row.get("sources_sought_plan_path")),
     ]).lower()
-    for folder in [DOWNLOADS_DIR / notice_id, MANUAL_UPLOADS_DIR / notice_id]:
-        if folder.exists():
-            text += " " + " ".join(path.name.lower() for path in folder.iterdir() if path.is_file())
+    if notice_id:
+        for folder in [DOWNLOADS_DIR / notice_id, MANUAL_UPLOADS_DIR / notice_id]:
+            if folder.exists():
+                text += " " + " ".join(path.name.lower() for path in folder.iterdir() if path.is_file())
     checklist = []
     for key, hints in DOCUMENT_HINTS:
         detected = any(hint in text for hint in hints)
@@ -1185,7 +1211,7 @@ def enriched_opportunities():
 
 def safe_relative_path(raw_path):
     text = unquote(safe_text(raw_path))
-    if not text or text.startswith("/") or ".." in Path(text).parts:
+    if not text or text.startswith("/") or "\\" in text or ".." in Path(text).parts:
         return None
     candidate = (BASE_DIR / text).resolve()
     for root in ALLOWED_FILE_ROOTS:
@@ -1195,6 +1221,42 @@ def safe_relative_path(raw_path):
         except ValueError:
             continue
     return None
+
+
+def file_path_denied(path):
+    try:
+        rel = path.resolve().relative_to(BASE_DIR)
+    except ValueError:
+        return True
+    parts = rel.parts
+    rel_posix = rel.as_posix()
+    name = path.name
+    if name in DENIED_FILE_NAMES or name.startswith(".env."):
+        return True
+    if path.suffix in DENIED_FILE_SUFFIXES:
+        return True
+    if "data/backups" in rel_posix:
+        return True
+    if rel_posix == "data/opportunity_state.csv":
+        return True
+    if any(part in DENIED_PATH_PARTS for part in parts):
+        return True
+    if "session" in name.lower() and path.suffix.lower() in {".json", ".sqlite", ".db"}:
+        return True
+    return False
+
+
+def safe_notice_id(value):
+    text = safe_text(value)
+    if not text:
+        return ""
+    if text.startswith("/") or "\\" in text or "/" in text:
+        return ""
+    if text in {".", ".."} or ".." in text or ".." in Path(text).parts or ".." in text.split("\\"):
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", text):
+        return ""
+    return text
 
 
 def sanitize_id(value):
@@ -1216,10 +1278,16 @@ def row_for_notice(notice_id):
 
 
 def local_documents_exist(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return False
     return folder_has_files(DOWNLOADS_DIR / notice_id) or folder_has_files(MANUAL_UPLOADS_DIR / notice_id)
 
 
 def local_reports_exist(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return False
     report_paths = [
         REPORTS_DIR / "analysis_packets" / f"{notice_id}.md",
         REPORTS_DIR / "opportunity_reviews" / f"{notice_id}_bid_no_bid.md",
@@ -1272,6 +1340,9 @@ def extract_zip_files(folder):
 
 
 def working_documents_dir(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return "manual_uploads", MANUAL_UPLOADS_DIR / "unknown"
     downloads_folder = DOWNLOADS_DIR / notice_id
     manual_folder = MANUAL_UPLOADS_DIR / notice_id
     if supported_documents(downloads_folder) or folder_has_files(downloads_folder):
@@ -1461,6 +1532,9 @@ def refresh_row_after_artifacts(notice_id, stage):
 
 
 def action_prepare_docs(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     row = row_for_notice(notice_id)
     url = safe_text(row.get("ui_link"))
     if not notice_id or not url:
@@ -1503,6 +1577,9 @@ def action_prepare_docs(notice_id):
 
 
 def action_run_ai_review(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     row = row_for_notice(notice_id)
     if not local_documents_exist(notice_id):
         return {
@@ -1552,7 +1629,9 @@ def action_run_ai_review(notice_id):
 
 
 def action_extract_documents(notice_id):
-    notice_id = sanitize_id(notice_id)
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     folders = [
         ("downloads", DOWNLOADS_DIR / notice_id),
         ("manual_uploads", MANUAL_UPLOADS_DIR / notice_id),
@@ -1635,6 +1714,9 @@ def action_extract_documents(notice_id):
 
 
 def action_draft_response(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     row = row_for_notice(notice_id)
     context = " ".join([
         safe_text(row.get("title")),
@@ -1651,7 +1733,7 @@ def action_draft_response(notice_id):
             return {"status": "ok", "message": "Sources-sought/RFI plan refreshed.", "commands": summaries}
         return {"status": "warning", "message": "Draft response action failed.", "commands": summaries}
 
-    draft_dir = AI_DRAFTS_DIR / sanitize_id(notice_id)
+    draft_dir = AI_DRAFTS_DIR / notice_id
     draft_dir.mkdir(parents=True, exist_ok=True)
     draft_path = draft_dir / "README.md"
     draft_path.write_text(
@@ -1713,6 +1795,9 @@ def detail_links_for_synopsis(row, notice_id, sam_uuid):
 
 
 def fetch_synopsis_from_sam(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     try:
         api_key = get_sam_api_key()
     except RuntimeError:
@@ -1842,6 +1927,7 @@ def truncate_at_paragraph(text, limit):
 
 
 def build_document_extract_bundle(notice_id):
+    notice_id = safe_notice_id(notice_id)
     extract_dir = REPORTS_DIR / "document_extracts" / notice_id
     bundle = {
         "document_extract_files": [],
@@ -1853,6 +1939,8 @@ def build_document_extract_bundle(notice_id):
         "document_extract_available": False,
         "document_extract_content": "",
     }
+    if not notice_id:
+        return bundle
     if not extract_dir.exists():
         print_context_bundle_summary(notice_id, bundle)
         return bundle
@@ -1933,9 +2021,9 @@ def print_context_bundle_summary(notice_id, bundle):
 
 
 def build_workspace_context(notice_id):
-    notice_id = sanitize_id(notice_id)
-    if notice_id == "unknown":
-        return None, "Invalid notice_id"
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return None, "Invalid notice_id."
 
     _fieldnames, rows = read_state()
     row = {}
@@ -2124,6 +2212,9 @@ Never assume or guess the current date.
 
 
 def load_conversation_history(notice_id):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return []
     path = WORKSPACE_DIR / notice_id / "conversation_history.json"
     if not path.exists():
         return []
@@ -2137,7 +2228,9 @@ def load_conversation_history(notice_id):
 
 
 def workspace_history_payload(notice_id):
-    notice_id = sanitize_id(notice_id)
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     path = WORKSPACE_DIR / notice_id / "conversation_history.json"
     if not path.exists():
         return {
@@ -2171,7 +2264,9 @@ def workspace_sessions_payload():
         for folder in sorted(WORKSPACE_DIR.iterdir()):
             if not folder.is_dir():
                 continue
-            notice_id = sanitize_id(folder.name)
+            notice_id = safe_notice_id(folder.name)
+            if not notice_id:
+                continue
             history_file = folder / "conversation_history.json"
             if not history_file.exists():
                 continue
@@ -2192,8 +2287,8 @@ def workspace_sessions_payload():
 
 
 def post_ai_status_payload(raw_notice_id):
-    notice_id = safe_text(raw_notice_id)
-    if not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", notice_id):
+    notice_id = safe_notice_id(raw_notice_id)
+    if not notice_id:
         return {"status": "error", "message": "Invalid notice_id."}, 400
 
     report_paths = {
@@ -2297,12 +2392,19 @@ def auto_archive_pastdue_payload(preview=False):
 
 
 def save_conversation_history(notice_id, history):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return False
     ws_path = WORKSPACE_DIR / notice_id
     ws_path.mkdir(parents=True, exist_ok=True)
     (ws_path / "conversation_history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
+    return True
 
 
 def workspace_chat(notice_id, message):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     from dotenv import load_dotenv
     load_dotenv()
 
@@ -2363,7 +2465,8 @@ def workspace_chat(notice_id, message):
         assistant_text = response.content[0].text
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": assistant_text})
-        save_conversation_history(notice_id, history)
+        if not save_conversation_history(notice_id, history):
+            return invalid_notice_response()
         return {
             "status": "ok",
             "response": assistant_text,
@@ -2394,6 +2497,9 @@ def workspace_chat(notice_id, message):
 
 
 def workspace_save_draft_file(notice_id, draft_type, content):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     if draft_type not in DRAFT_TYPE_TO_FILENAME:
         return {"status": "error", "message": f"Unknown draft_type: {draft_type!r}"}
     filename = DRAFT_TYPE_TO_FILENAME[draft_type]
@@ -2405,6 +2511,9 @@ def workspace_save_draft_file(notice_id, draft_type, content):
 
 
 def workspace_read_draft_file(notice_id, draft_type):
+    notice_id = safe_notice_id(notice_id)
+    if not notice_id:
+        return invalid_notice_response()
     if draft_type not in DRAFT_TYPE_TO_FILENAME:
         return {"status": "error", "message": f"Unknown draft_type: {draft_type!r}"}
     filename = DRAFT_TYPE_TO_FILENAME[draft_type]
@@ -2425,7 +2534,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/opportunities":
             return json_response(self, {"opportunities": enriched_opportunities()})
         if parsed.path.startswith("/api/notes/"):
-            notice_id = unquote(parsed.path.rsplit("/", 1)[-1])
+            notice_id = safe_notice_id(unquote(parsed.path.rsplit("/", 1)[-1]))
+            if not notice_id:
+                return json_response(self, invalid_notice_response(), 400)
             return json_response(self, {"notes": notes_by_notice().get(notice_id, [])})
         if parsed.path == "/api/config":
             return json_response(self, {
@@ -2434,7 +2545,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "business_rules": read_json(BUSINESS_RULES_PATH, {}),
             })
         if parsed.path.startswith("/api/workspace-context/"):
-            notice_id = sanitize_id(unquote(parsed.path.rsplit("/", 1)[-1]))
+            notice_id = safe_notice_id(unquote(parsed.path.rsplit("/", 1)[-1]))
+            if not notice_id:
+                return json_response(self, invalid_notice_response(), 400)
             ctx, err = build_workspace_context(notice_id)
             if err:
                 return json_response(self, {"error": err}, 404)
@@ -2442,7 +2555,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/workspace-sessions":
             return json_response(self, workspace_sessions_payload())
         if parsed.path.startswith("/api/workspace-history/"):
-            notice_id = sanitize_id(unquote(parsed.path.rsplit("/", 1)[-1]))
+            notice_id = safe_notice_id(unquote(parsed.path.rsplit("/", 1)[-1]))
+            if not notice_id:
+                return json_response(self, invalid_notice_response(), 400)
             return json_response(self, workspace_history_payload(notice_id))
         if parsed.path.startswith("/api/post-ai-status/"):
             notice_id = unquote(parsed.path.rsplit("/", 1)[-1])
@@ -2451,7 +2566,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/api/workspace-draft/"):
             parts = parsed.path.split("/")
             if len(parts) >= 5:
-                notice_id = sanitize_id(unquote(parts[-2]))
+                notice_id = safe_notice_id(unquote(parts[-2]))
+                if not notice_id:
+                    return json_response(self, invalid_notice_response(), 400)
                 draft_type = unquote(parts[-1])
                 return json_response(self, workspace_read_draft_file(notice_id, draft_type))
             return json_response(self, {"error": "Invalid path"}, 400)
@@ -2513,7 +2630,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def handle_stage(self):
         payload = self.read_json_body()
-        notice_id = safe_text(payload.get("notice_id"))
+        notice_id = safe_notice_id(payload.get("notice_id"))
         stage = safe_text(payload.get("macro_stage"))
         note_text = safe_text(payload.get("note_text"))
         note_type = safe_text(payload.get("note_type") or "general_note")
@@ -2521,7 +2638,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         last_action = safe_text(payload.get("last_operator_action"))
 
         if not notice_id:
-            raise ValueError("notice_id is required")
+            return json_response(self, invalid_notice_response(), 400)
         if stage not in allowed_stages():
             raise ValueError("Invalid macro_stage")
 
@@ -2541,6 +2658,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         payload = self.read_json_body()
         result = set_stage_override(payload.get("notice_id"), payload.get("stage"))
         if result.get("status") != "ok":
+            if result == invalid_notice_response():
+                return json_response(self, result, 400)
             return json_response(self, {"error": result.get("message", "Stage override failed")}, 400)
         return json_response(self, result)
 
@@ -2548,17 +2667,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
         payload = self.read_json_body()
         result = set_watch_list(payload.get("notice_id"), payload.get("watch_list"))
         if result.get("status") != "ok":
+            if result == invalid_notice_response():
+                return json_response(self, result, 400)
             return json_response(self, {"error": result.get("message", "Watch List update failed")}, 400)
         return json_response(self, result)
 
     def handle_note(self):
         payload = self.read_json_body()
-        notice_id = safe_text(payload.get("notice_id"))
+        notice_id = safe_notice_id(payload.get("notice_id"))
         note_type = safe_text(payload.get("note_type"))
         note_text = safe_text(payload.get("note_text"))
         stage = safe_text(payload.get("stage"))
-        if not notice_id or not note_text:
-            raise ValueError("notice_id and note_text are required")
+        if not notice_id:
+            return json_response(self, invalid_notice_response(), 400)
+        if not note_text:
+            raise ValueError("note_text is required")
         append_note(notice_id, note_type, note_text, stage, "operator")
         update_state_row(notice_id, {
             "last_operator_action": f"Saved {note_type} note.",
@@ -2569,16 +2692,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def handle_fetch_synopsis(self):
         payload = self.read_json_body()
-        notice_id = safe_text(payload.get("notice_id"))
+        notice_id = safe_notice_id(payload.get("notice_id"))
         if not notice_id:
-            raise ValueError("notice_id is required")
+            return json_response(self, invalid_notice_response(), 400)
         return json_response(self, fetch_synopsis_from_sam(notice_id))
 
     def handle_extract_documents(self):
         payload = self.read_json_body()
-        notice_id = safe_text(payload.get("notice_id"))
+        notice_id = safe_notice_id(payload.get("notice_id"))
         if not notice_id:
-            raise ValueError("notice_id is required")
+            return json_response(self, invalid_notice_response(), 400)
         result = action_extract_documents(notice_id)
         status_code = 200 if result.get("status") == "ok" else 400
         return json_response(self, result, status_code)
@@ -2586,6 +2709,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def handle_upload(self, notice_id):
         if not notice_id:
             raise ValueError("notice_id is required")
+        notice_id = safe_notice_id(notice_id)
+        if not notice_id:
+            return json_response(self, invalid_notice_response(), 400)
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             raise ValueError("multipart/form-data upload required")
@@ -2603,7 +2729,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         upload = form["file"] if "file" in form else None
         if upload is None or not getattr(upload, "filename", ""):
             raise ValueError("file is required")
-        folder = MANUAL_UPLOADS_DIR / sanitize_id(notice_id)
+        folder = MANUAL_UPLOADS_DIR / notice_id
         folder.mkdir(parents=True, exist_ok=True)
         filename = sanitize_filename(upload.filename)
         target = folder / filename
@@ -2629,9 +2755,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def handle_action(self, action):
         payload = self.read_json_body()
-        notice_id = safe_text(payload.get("notice_id"))
+        notice_id = safe_notice_id(payload.get("notice_id"))
         if not notice_id:
-            raise ValueError("notice_id is required")
+            return json_response(self, invalid_notice_response(), 400)
         if action == "prepare_docs":
             return json_response(self, action_prepare_docs(notice_id))
         if action == "run_ai_review":
@@ -2647,21 +2773,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def handle_workspace_chat(self):
         payload = self.read_json_body()
-        notice_id = sanitize_id(safe_text(payload.get("notice_id")))
+        notice_id = safe_notice_id(payload.get("notice_id"))
         message = safe_text(payload.get("message"))
-        if not notice_id or notice_id == "unknown":
-            return json_response(self, {"status": "error", "message": "notice_id is required"}, 400)
+        if not notice_id:
+            return json_response(self, invalid_notice_response(), 400)
         if not message:
             return json_response(self, {"status": "error", "message": "message is required"}, 400)
         return json_response(self, workspace_chat(notice_id, message))
 
     def handle_workspace_save_draft(self):
         payload = self.read_json_body()
-        notice_id = sanitize_id(safe_text(payload.get("notice_id")))
+        notice_id = safe_notice_id(payload.get("notice_id"))
         draft_type = safe_text(payload.get("draft_type"))
         content = safe_text(payload.get("content"))
-        if not notice_id or notice_id == "unknown":
-            return json_response(self, {"status": "error", "message": "notice_id is required"}, 400)
+        if not notice_id:
+            return json_response(self, invalid_notice_response(), 400)
         if not draft_type:
             return json_response(self, {"status": "error", "message": "draft_type is required"}, 400)
         return json_response(self, workspace_save_draft_file(notice_id, draft_type, content))
@@ -2674,6 +2800,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return json_response(self, {"error": "File not found or not allowed"}, 404)
         if path.is_dir():
             return json_response(self, {"error": "Directory listing is not allowed"}, 403)
+        if file_path_denied(path):
+            return json_response(self, {"error": "File not allowed"}, 403)
         content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         body = path.read_bytes()
         self.send_response(200)

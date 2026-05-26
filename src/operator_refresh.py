@@ -3,6 +3,8 @@ import subprocess
 import sys
 
 
+SUBPROCESS_TIMEOUT_SECONDS = 120
+
 STEPS = [
     {
         "name": "opportunity state",
@@ -49,7 +51,12 @@ def run_step(step):
     print("")
     print(f"Refreshing {step['name']}...", flush=True)
     print(" ".join(step["command"]), flush=True)
-    result = subprocess.run(step["command"])
+    try:
+        result = subprocess.run(step["command"], timeout=SUBPROCESS_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        print("")
+        print(f"Refresh timed out during {step['name']} after {SUBPROCESS_TIMEOUT_SECONDS} seconds.")
+        return 124
     if result.returncode != 0:
         print("")
         print(f"Refresh failed during {step['name']} with exit code {result.returncode}.")
