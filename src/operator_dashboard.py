@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import zipfile
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -56,6 +57,7 @@ MANUAL_UPLOADS_DIR = BASE_DIR / "manual_uploads"
 AI_DRAFTS_DIR = BASE_DIR / "ai_drafts"
 REPORTS_DIR = BASE_DIR / "reports"
 DOWNLOADS_DIR = BASE_DIR / "downloads"
+BATCH_RUNS_DIR = BASE_DIR / "reports/batch_runs"
 CONFIG_DIR = BASE_DIR / "config"
 WEB_DIR = BASE_DIR / "web/operator_dashboard"
 
@@ -2563,6 +2565,124 @@ def workspace_read_draft_file(notice_id, draft_type):
     return {"status": "ok", "content": content, "filename": filename, "notice_id": notice_id, "draft_type": draft_type}
 
 
+_batch_state = {
+    "running": False,
+    "run_id": "",
+    "started_at": "",
+    "stages": [],
+    "limit": 0,
+    "force": False,
+    "live": True,
+    "total": 0,
+    "completed": 0,
+    "results": [],
+    "done": False,
+    "error": "",
+    "report_path": "",
+}
+_batch_state_lock = threading.Lock()
+
+
+def batch_state_snapshot():
+    with _batch_state_lock:
+        return dict(_batch_state)
+
+
+def _run_batch_thread(stages, limit, force, live):
+    from batch_download_docs import run_batch, write_batch_report
+
+    def progress_callback(step, total, results_so_far):
+        with _batch_state_lock:
+            _batch_state["completed"] = step
+            _batch_state["total"] = total
+            _batch_state["results"] = list(results_so_far)
+
+    try:
+        results, error = run_batch(
+            stages=list(stages),
+            limit=limit,
+            force=force,
+            live=live,
+            progress_callback=progress_callback,
+        )
+        stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        report_path = ""
+        if results is not None:
+            rp = BATCH_RUNS_DIR / f"batch_download_docs_{stamp}.md"
+            try:
+                report_path = write_batch_report(results, rp, set(stages), limit, force, live)
+            except Exception as write_err:
+                error = error or str(write_err)
+        with _batch_state_lock:
+            _batch_state["running"] = False
+            _batch_state["done"] = True
+            _batch_state["results"] = list(results or [])
+            _batch_state["error"] = error or ""
+            _batch_state["report_path"] = report_path
+            _batch_state["completed"] = len([r for r in (results or []) if not r.get("status", "").startswith("skipped_")])
+    except Exception as exc:
+        with _batch_state_lock:
+            _batch_state["running"] = False
+            _batch_state["done"] = True
+            _batch_state["error"] = str(exc)
+
+
+def handle_batch_download_docs_request(payload):
+    raw_stages = payload.get("stages", ["Intake", "AI Review", "Development"])
+    if not isinstance(raw_stages, list):
+        raw_stages = ["Intake", "AI Review", "Development"]
+
+    allowed = {"Intake", "AI Review", "Development"}
+    stages = [s for s in raw_stages if safe_text(s) in allowed]
+    if not stages:
+        stages = ["Intake", "AI Review", "Development"]
+
+    try:
+        limit = int(payload.get("limit", 10))
+        limit = max(1, min(limit, 50))
+    except (TypeError, ValueError):
+        limit = 10
+
+    force = bool(payload.get("force", False))
+    live = bool(payload.get("live", True))
+
+    with _batch_state_lock:
+        if _batch_state["running"]:
+            return {"status": "error", "message": "A batch download is already running."}, 409
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        _batch_state.update({
+            "running": True,
+            "run_id": run_id,
+            "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "stages": stages,
+            "limit": limit,
+            "force": force,
+            "live": live,
+            "total": 0,
+            "completed": 0,
+            "results": [],
+            "done": False,
+            "error": "",
+            "report_path": "",
+        })
+
+    thread = threading.Thread(
+        target=_run_batch_thread,
+        args=(stages, limit, force, live),
+        daemon=True,
+    )
+    thread.start()
+
+    return {
+        "status": "started",
+        "run_id": run_id,
+        "stages": stages,
+        "limit": limit,
+        "force": force,
+        "live": live,
+    }, 200
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "GovConScoutDashboard/0.1"
 
@@ -2611,6 +2731,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 draft_type = unquote(parts[-1])
                 return json_response(self, workspace_read_draft_file(notice_id, draft_type))
             return json_response(self, {"error": "Invalid path"}, 400)
+        if parsed.path == "/api/batch-download-status":
+            return json_response(self, batch_state_snapshot())
         if parsed.path == "/file":
             return self.serve_safe_file(parsed)
         return json_response(self, {"error": "Not found"}, 404)
@@ -2646,6 +2768,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.handle_workspace_chat()
             if parsed.path == "/api/workspace-save-draft":
                 return self.handle_workspace_save_draft()
+            if parsed.path == "/api/batch-download-docs":
+                return self.handle_batch_download_docs()
             return json_response(self, {"error": "Not found"}, 404)
         except RequestTooLarge as error:
             return json_response(self, {"status": "error", "message": str(error)}, error.status)
@@ -2856,6 +2980,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not draft_type:
             return json_response(self, {"status": "error", "message": "draft_type is required"}, 400)
         return json_response(self, workspace_save_draft_file(notice_id, draft_type, content))
+
+    def handle_batch_download_docs(self):
+        payload = self.read_json_body()
+        result, status_code = handle_batch_download_docs_request(payload)
+        return json_response(self, result, status_code)
 
     def serve_safe_file(self, parsed):
         query = parse_qs(parsed.query)

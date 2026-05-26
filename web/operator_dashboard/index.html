@@ -117,6 +117,35 @@
       font-size: 11px;
       white-space: nowrap;
     }
+    .batch-download-btn {
+      background: transparent;
+      color: var(--cyan);
+      border-color: var(--cyan);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    #batchProgressPanel {
+      position: fixed;
+      bottom: 18px;
+      right: 18px;
+      width: 380px;
+      background: #141416;
+      border: 1px solid var(--cyan);
+      padding: 14px 16px;
+      z-index: 2000;
+      font: 11px "Courier New", monospace;
+      display: none;
+    }
+    #batchProgressPanel.open { display: block; }
+    #batchProgressPanel h3 {
+      color: var(--cyan);
+      margin: 0 0 8px 0;
+      font: 13px "Courier New", monospace;
+    }
+    .batch-result-row { padding: 2px 0; color: var(--secondary); }
+    .batch-result-row.ok { color: var(--green); }
+    .batch-result-row.fail { color: var(--red); }
+    .batch-result-row.skip { color: var(--muted); }
     .workflow {
       color: var(--secondary);
       border-bottom: 1px solid #1e1e22;
@@ -1339,6 +1368,7 @@
         ).join("")}
         <button class="review-ineligible" id="reviewIneligible">Review Ineligible Set-Asides</button>
         <button class="archive-pastdue" id="archivePastDue">Archive Past Due</button>
+        <button class="batch-download-btn" id="batchDownloadDocs">&#11015; Download Docs for Kept Items</button>
         <div class="sort-wrap">
           <span class="label">SORT</span>
           <select id="sortMode">
@@ -1371,6 +1401,8 @@
       if (review) review.onclick = showIneligibleReview;
       const archivePastDue = document.getElementById("archivePastDue");
       if (archivePastDue) archivePastDue.onclick = showPastDueArchivePreview;
+      const batchDownload = document.getElementById("batchDownloadDocs");
+      if (batchDownload) batchDownload.onclick = showBatchDownloadModal;
     }
 
     function countBy(predicate) {
@@ -1735,6 +1767,159 @@
           button.disabled = false;
           button.textContent = "Confirm — Archive These";
           flashStatus(error.message || "Past-due archive failed.", 2500);
+        }
+      };
+    }
+
+    let batchPollInterval = null;
+
+    function batchStatusClass(status) {
+      if (status === "downloaded") return "ok";
+      if (status.startsWith("failed_")) return "fail";
+      return "skip";
+    }
+
+    function batchStatusLabel(status) {
+      const map = {
+        "downloaded": "downloaded",
+        "skipped_already_has_docs": "skipped (has docs)",
+        "skipped_no_url": "skipped (no URL)",
+        "skipped_source_not_supported": "skipped (source)",
+        "skipped_sources_sought_route": "skipped (sources sought)",
+        "failed_login_or_live_infra": "failed (login/infra)",
+        "failed_no_download_link": "failed (no link found)",
+        "failed_other": "failed",
+      };
+      return map[status] || status;
+    }
+
+    function renderBatchProgress(state) {
+      const panel = document.getElementById("batchProgressPanel");
+      const body = document.getElementById("batchProgressBody");
+      const closeBtn = document.getElementById("batchProgressClose");
+      if (!panel || !body) return;
+
+      const results = state.results || [];
+      const downloaded = results.filter(r => r.status === "downloaded").length;
+      const skipped = results.filter(r => r.status.startsWith("skipped_")).length;
+      const failed = results.filter(r => r.status.startsWith("failed_")).length;
+
+      let html = "";
+      if (state.running && !state.done) {
+        html += `<div style="color:var(--cyan);margin-bottom:6px;">Running&#8230; ${state.completed || 0} / ${state.total || "?"} active candidates</div>`;
+      } else if (state.done && state.error && !results.length) {
+        html += `<div style="color:var(--red);margin-bottom:6px;">Could not start: ${h(state.error)}</div>`;
+      } else if (state.done) {
+        html += `<div style="color:var(--green);margin-bottom:6px;">Done. Downloaded: ${downloaded}  Skipped: ${skipped}  Failed: ${failed}</div>`;
+        if (state.report_path) {
+          html += `<div style="color:var(--secondary);margin-bottom:6px;">Report: <a href="/file?path=${encodeURIComponent(state.report_path)}" target="_blank">${h(state.report_path)}</a></div>`;
+        }
+        if (downloaded > 0) {
+          html += `<div style="color:var(--cyan);margin-bottom:6px;">Next: Run AI Review on downloaded cards.</div>`;
+        }
+      }
+
+      const recent = results.slice(-12);
+      for (const r of recent) {
+        html += `<div class="batch-result-row ${batchStatusClass(r.status)}">${h(r.notice_id)} &mdash; ${batchStatusLabel(r.status)}${r.attachment_count ? ` (${r.attachment_count} files)` : ""}</div>`;
+      }
+
+      body.innerHTML = html;
+      if (closeBtn) {
+        closeBtn.disabled = state.running && !state.done;
+        closeBtn.onclick = () => {
+          stopBatchPolling();
+          panel.classList.remove("open");
+        };
+      }
+      panel.classList.add("open");
+    }
+
+    function stopBatchPolling() {
+      if (batchPollInterval) {
+        clearInterval(batchPollInterval);
+        batchPollInterval = null;
+      }
+    }
+
+    function startBatchPolling() {
+      stopBatchPolling();
+      batchPollInterval = setInterval(async () => {
+        try {
+          const state = await api("/api/batch-download-status");
+          renderBatchProgress(state);
+          if (state.done || (!state.running && !state.done)) {
+            stopBatchPolling();
+            if (state.done && (state.results || []).some(r => r.status === "downloaded")) {
+              await load();
+            }
+          }
+        } catch (_) {
+          stopBatchPolling();
+        }
+      }, 2500);
+    }
+
+    async function showBatchDownloadModal() {
+      const state = await api("/api/batch-download-status").catch(() => ({}));
+      if (state.running) {
+        renderBatchProgress(state);
+        startBatchPolling();
+        return;
+      }
+
+      const existing = document.getElementById("batchDownloadModal");
+      if (existing) existing.remove();
+      const modal = document.createElement("div");
+      modal.id = "batchDownloadModal";
+      modal.className = "modal-backdrop";
+      modal.innerHTML = `
+        <div class="modal" role="dialog" aria-modal="true">
+          <h2>&#11015; Download Documents for Kept Items</h2>
+          <pre>${h([
+            "Downloads SAM.gov / PIEE solicitation packages for opportunities",
+            "you have already moved to Intake, AI Review, or Development.",
+            "",
+            "Requires: auth.json (SAM.gov session) + noVNC if using headed mode.",
+            "Does NOT run AI Review automatically.",
+            "Does NOT change stages or pass/archive anything.",
+          ].join("\n"))}</pre>
+          <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;">
+            <label style="color:var(--secondary);">Limit</label>
+            <input id="batchLimitInput" type="number" value="10" min="1" max="50" style="width:70px;">
+            <label style="color:var(--secondary);display:flex;align-items:center;gap:6px;">
+              <input id="batchForceInput" type="checkbox"> Re-download existing
+            </label>
+            <label style="color:var(--secondary);display:flex;align-items:center;gap:6px;">
+              <input id="batchLiveInput" type="checkbox" checked> Headed (noVNC)
+            </label>
+          </div>
+          <button class="go" id="confirmBatchDownload">Start Download</button>
+          <button id="cancelBatchDownload">Cancel</button>
+        </div>`;
+      document.body.appendChild(modal);
+      document.getElementById("cancelBatchDownload").onclick = () => modal.remove();
+      modal.onclick = event => { if (event.target === modal) modal.remove(); };
+      document.getElementById("confirmBatchDownload").onclick = async () => {
+        const btn = document.getElementById("confirmBatchDownload");
+        const limit = parseInt(document.getElementById("batchLimitInput").value, 10) || 10;
+        const force = document.getElementById("batchForceInput").checked;
+        const live = document.getElementById("batchLiveInput").checked;
+        btn.disabled = true;
+        btn.textContent = "Starting...";
+        try {
+          const result = await api("/api/batch-download-docs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stages: ["Intake", "AI Review", "Development"], limit, force, live }),
+          });
+          modal.remove();
+          renderBatchProgress({ running: true, done: false, completed: 0, total: 0, results: [], error: "" });
+          startBatchPolling();
+        } catch (error) {
+          btn.disabled = false;
+          btn.textContent = "Start Download";
+          flashStatus(error.message || "Batch download failed to start.", 3000);
         }
       };
     }
@@ -3407,6 +3592,14 @@
       <h3 id="draftReadModalTitle">Saved Draft</h3>
       <div id="draftReadModalBody"></div>
       <button id="draftReadModalClose">Close</button>
+    </div>
+  </div>
+
+  <div id="batchProgressPanel">
+    <h3>⬇ Batch Document Download</h3>
+    <div id="batchProgressBody"></div>
+    <div style="margin-top:10px;display:flex;gap:8px;">
+      <button id="batchProgressClose" style="flex:1;">Close</button>
     </div>
   </div>
 

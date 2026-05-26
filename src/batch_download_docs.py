@@ -1,0 +1,529 @@
+"""
+Batch document download for opportunities already kept by the operator.
+
+Selects candidates from Intake / AI Review / Development stages and downloads
+SAM.gov / PIEE attachment packages using the saved auth.json browser session.
+"""
+
+import argparse
+import csv as csv_module
+import os
+import re
+import subprocess
+import sys
+import zipfile
+from datetime import datetime
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_AUTH_STATE = str(BASE_DIR / "auth.json")
+DEFAULT_DOWNLOADS_DIR = str(BASE_DIR / "downloads")
+DEFAULT_EXTRACTS_DIR = str(BASE_DIR / "reports/document_extracts")
+DEFAULT_BATCH_RUNS_DIR = str(BASE_DIR / "reports/batch_runs")
+DEFAULT_STATE_CSV = str(BASE_DIR / "data/opportunity_state.csv")
+NOVNC_CHECK_SCRIPT = str(BASE_DIR / "scripts/novnc_check.sh")
+
+BATCH_STAGES = {"Intake", "AI Review", "Development"}
+
+SOURCE_URL_FIELDS = [
+    "source_url",
+    "ui_link",
+    "url",
+    "link",
+    "sam_url",
+    "notice_url",
+]
+
+STATUS_DOWNLOADED = "downloaded"
+STATUS_SKIPPED_HAS_DOCS = "skipped_already_has_docs"
+STATUS_SKIPPED_NO_URL = "skipped_no_url"
+STATUS_SKIPPED_SOURCE = "skipped_source_not_supported"
+STATUS_SKIPPED_ROUTE = "skipped_sources_sought_route"
+STATUS_FAILED_INFRA = "failed_login_or_live_infra"
+STATUS_FAILED_NO_LINK = "failed_no_download_link"
+STATUS_FAILED_OTHER = "failed_other"
+
+NEXT_ACTION_AI_REVIEW = "Run AI Review"
+NEXT_ACTION_MANUAL = "Upload Documents Manually"
+NEXT_ACTION_RETRY = "Retry Login"
+NEXT_ACTION_SKIP = "Skip/Pass"
+
+
+def safe_text(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def safe_notice_id(value):
+    text = safe_text(value)
+    if not text:
+        return ""
+    if text.startswith("/") or "\\" in text or "/" in text:
+        return ""
+    if text in {".", ".."} or ".." in text:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,120}", text):
+        return ""
+    return text
+
+
+def get_source_url(row):
+    for field in SOURCE_URL_FIELDS:
+        value = safe_text(row.get(field))
+        if value and (value.startswith("http://") or value.startswith("https://")):
+            return value
+    return ""
+
+
+def has_existing_downloads(notice_id, downloads_dir, extracts_dir):
+    if not notice_id:
+        return False
+    downloads_folder = Path(downloads_dir) / notice_id
+    if downloads_folder.exists():
+        non_debug = [
+            f for f in downloads_folder.rglob("*")
+            if f.is_file() and "_debug" not in f.parts and f.name != ".gitkeep"
+        ]
+        if non_debug:
+            return True
+    extracts_folder = Path(extracts_dir) / notice_id
+    if extracts_folder.exists() and any(f.is_file() for f in extracts_folder.rglob("*")):
+        return True
+    return False
+
+
+def is_sources_sought_only(row):
+    route = safe_text(row.get("route")).lower()
+    return route == "sources_sought"
+
+
+def is_mybidmatch_only(row):
+    source = safe_text(row.get("source")).lower()
+    return "mybidmatch" in source and "govcon" not in source
+
+
+def count_downloads(notice_id, downloads_dir):
+    folder = Path(downloads_dir) / notice_id
+    if not folder.exists():
+        return 0
+    return len([
+        f for f in folder.rglob("*")
+        if f.is_file() and "_debug" not in f.parts and f.name != ".gitkeep"
+    ])
+
+
+def extract_zips(notice_id, downloads_dir):
+    folder = Path(downloads_dir) / notice_id
+    if not folder.exists():
+        return 0, ""
+    extracted = 0
+    for zip_path in sorted(folder.rglob("*.zip")):
+        target_dir = folder / "extracted"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(zip_path, "r") as archive:
+                for member in archive.infolist():
+                    member_path = Path(member.filename)
+                    if member_path.is_absolute() or ".." in member_path.parts:
+                        return extracted, f"Unsafe ZIP entry rejected: {member.filename}"
+                    target_path = (target_dir / member.filename).resolve()
+                    try:
+                        target_path.relative_to(target_dir.resolve())
+                    except ValueError:
+                        return extracted, f"Unsafe ZIP path traversal rejected: {member.filename}"
+                archive.extractall(target_dir)
+                extracted += 1
+        except zipfile.BadZipFile:
+            return extracted, f"Bad ZIP skipped: {zip_path.name}"
+        except OSError as err:
+            return extracted, f"ZIP extraction error: {err}"
+    return extracted, ""
+
+
+def live_preflight_check():
+    if not os.environ.get("DISPLAY"):
+        return False, (
+            "DISPLAY is not set. Start noVNC (scripts/novnc_reset.sh), "
+            "set DISPLAY=:99, then retry."
+        )
+    check_script = Path(NOVNC_CHECK_SCRIPT)
+    if not check_script.exists():
+        return False, f"noVNC check script not found: {NOVNC_CHECK_SCRIPT}"
+    result = subprocess.run(["bash", str(check_script)], capture_output=True)
+    if result.returncode != 0:
+        output = result.stdout.decode("utf-8", errors="replace").strip()
+        return False, f"noVNC preflight failed:\n{output}\nRun scripts/novnc_reset.sh, then retry."
+    return True, ""
+
+
+def auth_state_ready(auth_state_path):
+    return Path(auth_state_path).exists()
+
+
+def select_candidates(rows, stages, limit, force, downloads_dir, extracts_dir):
+    candidates = []
+    kept = 0
+    for row in rows:
+        stage = safe_text(row.get("macro_stage"))
+        if stage not in stages:
+            continue
+        notice_id = safe_notice_id(safe_text(row.get("notice_id")))
+        if not notice_id:
+            continue
+        url = get_source_url(row)
+        if is_sources_sought_only(row):
+            candidates.append({
+                "row": row, "notice_id": notice_id, "url": url,
+                "skip": True, "skip_reason": STATUS_SKIPPED_ROUTE,
+            })
+            continue
+        if is_mybidmatch_only(row) and not url:
+            candidates.append({
+                "row": row, "notice_id": notice_id, "url": url,
+                "skip": True, "skip_reason": STATUS_SKIPPED_SOURCE,
+            })
+            continue
+        if not url:
+            candidates.append({
+                "row": row, "notice_id": notice_id, "url": url,
+                "skip": True, "skip_reason": STATUS_SKIPPED_NO_URL,
+            })
+            continue
+        if not force and has_existing_downloads(notice_id, downloads_dir, extracts_dir):
+            candidates.append({
+                "row": row, "notice_id": notice_id, "url": url,
+                "skip": True, "skip_reason": STATUS_SKIPPED_HAS_DOCS,
+            })
+            continue
+        if kept >= limit:
+            continue
+        candidates.append({
+            "row": row, "notice_id": notice_id, "url": url,
+            "skip": False, "skip_reason": "",
+        })
+        kept += 1
+    return candidates
+
+
+def _next_action_for_skip(skip_reason):
+    if skip_reason == STATUS_SKIPPED_HAS_DOCS:
+        return NEXT_ACTION_AI_REVIEW
+    if skip_reason in {STATUS_SKIPPED_NO_URL, STATUS_SKIPPED_SOURCE}:
+        return NEXT_ACTION_MANUAL
+    return NEXT_ACTION_SKIP
+
+
+def process_candidate(notice_id, url, auth_state, downloads_dir, headless):
+    try:
+        from sam_browser_downloader import download_for_notice
+    except ImportError as err:
+        return {
+            "status": STATUS_FAILED_OTHER,
+            "error": f"sam_browser_downloader not available: {err}",
+            "downloads_folder": str(Path(downloads_dir) / notice_id),
+            "attachment_count": 0,
+            "extracted_zips": 0,
+            "next_action": NEXT_ACTION_MANUAL,
+        }
+
+    Path(downloads_dir, notice_id).mkdir(parents=True, exist_ok=True)
+
+    try:
+        downloaded = download_for_notice(
+            auth_state=auth_state,
+            notice_id=notice_id,
+            url=url,
+            downloads_dir=downloads_dir,
+            headless=headless,
+            debug=True,
+        )
+    except SystemExit as err:
+        code = getattr(err, "code", 1)
+        if code == 1:
+            return {
+                "status": STATUS_FAILED_INFRA,
+                "error": (
+                    "SAM.gov login/live browser required. "
+                    "Regenerate auth.json via noVNC, then retry."
+                ),
+                "downloads_folder": str(Path(downloads_dir) / notice_id),
+                "attachment_count": 0,
+                "extracted_zips": 0,
+                "next_action": NEXT_ACTION_RETRY,
+            }
+        return {
+            "status": STATUS_FAILED_OTHER,
+            "error": f"Download process exited with code {code}.",
+            "downloads_folder": str(Path(downloads_dir) / notice_id),
+            "attachment_count": 0,
+            "extracted_zips": 0,
+            "next_action": NEXT_ACTION_MANUAL,
+        }
+    except Exception as err:
+        return {
+            "status": STATUS_FAILED_OTHER,
+            "error": str(err),
+            "downloads_folder": str(Path(downloads_dir) / notice_id),
+            "attachment_count": 0,
+            "extracted_zips": 0,
+            "next_action": NEXT_ACTION_MANUAL,
+        }
+
+    if not downloaded:
+        return {
+            "status": STATUS_FAILED_NO_LINK,
+            "error": "No solicitation files found or downloaded. Check debug screenshots.",
+            "downloads_folder": str(Path(downloads_dir) / notice_id),
+            "attachment_count": 0,
+            "extracted_zips": 0,
+            "next_action": NEXT_ACTION_MANUAL,
+        }
+
+    extracted_count, _zip_err = extract_zips(notice_id, downloads_dir)
+    attachment_count = count_downloads(notice_id, downloads_dir)
+
+    return {
+        "status": STATUS_DOWNLOADED,
+        "error": "",
+        "downloads_folder": str(Path(downloads_dir) / notice_id),
+        "attachment_count": attachment_count,
+        "extracted_zips": extracted_count,
+        "next_action": NEXT_ACTION_AI_REVIEW,
+    }
+
+
+def run_batch(
+    stages=None,
+    limit=10,
+    force=False,
+    live=True,
+    auth_state=None,
+    downloads_dir=None,
+    extracts_dir=None,
+    state_csv=None,
+    progress_callback=None,
+):
+    """
+    Main batch routine. Returns (results, error_message).
+    error_message is non-empty when the batch could not start at all.
+    progress_callback(step, total, results) is called after each active candidate.
+    """
+    stages = set(stages) if stages else BATCH_STAGES
+    auth_state = auth_state or DEFAULT_AUTH_STATE
+    downloads_dir = downloads_dir or DEFAULT_DOWNLOADS_DIR
+    extracts_dir = extracts_dir or DEFAULT_EXTRACTS_DIR
+    state_csv = state_csv or DEFAULT_STATE_CSV
+
+    if live:
+        ready, msg = live_preflight_check()
+        if not ready:
+            return [], msg
+
+    if not auth_state_ready(auth_state):
+        return [], (
+            f"No SAM.gov session found at {auth_state}. "
+            "Regenerate auth.json via noVNC: "
+            "DISPLAY=:99 npx playwright codegen --save-storage=auth.json https://sam.gov"
+        )
+
+    state_path = Path(state_csv)
+    if not state_path.exists():
+        return [], f"State CSV not found: {state_csv}"
+
+    rows = []
+    with state_path.open("r", encoding="utf-8", newline="") as f:
+        rows = [dict(row) for row in csv_module.DictReader(f)]
+
+    candidates = select_candidates(rows, stages, limit, force, downloads_dir, extracts_dir)
+    headless = not live
+
+    results = []
+
+    for c in candidates:
+        if not c["skip"]:
+            continue
+        row = c["row"]
+        results.append({
+            "notice_id": c["notice_id"],
+            "title": safe_text(row.get("title"))[:80],
+            "stage": safe_text(row.get("macro_stage")),
+            "source": safe_text(row.get("source")),
+            "url": c["url"],
+            "status": c["skip_reason"],
+            "error": "",
+            "downloads_folder": "",
+            "attachment_count": 0,
+            "extracted_zips": 0,
+            "next_action": _next_action_for_skip(c["skip_reason"]),
+        })
+
+    active = [c for c in candidates if not c["skip"]]
+    total = len(active)
+
+    for step, c in enumerate(active, start=1):
+        row = c["row"]
+        download_result = process_candidate(
+            notice_id=c["notice_id"],
+            url=c["url"],
+            auth_state=auth_state,
+            downloads_dir=downloads_dir,
+            headless=headless,
+        )
+        result = {
+            "notice_id": c["notice_id"],
+            "title": safe_text(row.get("title"))[:80],
+            "stage": safe_text(row.get("macro_stage")),
+            "source": safe_text(row.get("source")),
+            "url": c["url"],
+            **download_result,
+        }
+        results.append(result)
+        if progress_callback:
+            progress_callback(step, total, list(results))
+
+    return results, ""
+
+
+def write_batch_report(results, report_path, stages, limit, force, live):
+    report_path = Path(report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    downloaded = [r for r in results if r["status"] == STATUS_DOWNLOADED]
+    skipped = [r for r in results if r["status"].startswith("skipped_")]
+    failed = [r for r in results if r["status"].startswith("failed_")]
+
+    lines = [
+        "# Batch Document Download",
+        "",
+        f"**Generated:** {now}",
+        f"**Stages:** {', '.join(sorted(stages))}",
+        f"**Limit:** {limit}  **Force:** {force}  **Live (headed):** {live}",
+        "",
+        "## Summary",
+        "",
+        f"- **Downloaded:** {len(downloaded)}",
+        f"- **Skipped:** {len(skipped)}",
+        f"- **Failed:** {len(failed)}",
+        f"- **Total candidates evaluated:** {len(results)}",
+        "",
+        "## Results",
+        "",
+        "| notice_id | title | stage | status | attachments | next action |",
+        "|---|---|---|---|---|---|",
+    ]
+
+    for r in results:
+        count = r.get("attachment_count") or ""
+        lines.append(
+            f"| {r['notice_id']} | {r['title'][:50]} | {r['stage']} "
+            f"| {r['status']} | {count} | {r['next_action']} |"
+        )
+
+    lines += ["", "## Detail", ""]
+
+    for r in results:
+        if r["status"] == STATUS_DOWNLOADED:
+            lines += [
+                f"### {r['notice_id']} — downloaded",
+                "",
+                f"- **Title:** {r['title']}",
+                f"- **Stage:** {r['stage']}  **Source:** {r['source']}",
+                f"- **URL:** {r['url']}",
+                f"- **Downloads folder:** `{r['downloads_folder']}`",
+                f"- **Attachment count:** {r.get('attachment_count', 0)}",
+                f"- **ZIPs extracted:** {r.get('extracted_zips', 0)}",
+                f"- **Next action:** {r['next_action']}",
+                "",
+            ]
+        elif r["status"].startswith("failed_"):
+            lines += [
+                f"### {r['notice_id']} — {r['status']}",
+                "",
+                f"- **Title:** {r['title']}",
+                f"- **Stage:** {r['stage']}  **Source:** {r['source']}",
+                f"- **URL:** {r['url'] or '(none)'}",
+                f"- **Error:** {r.get('error', '')}",
+                f"- **Next action:** {r['next_action']}",
+                "",
+            ]
+
+    lines += [
+        "## Next Steps",
+        "",
+        "1. For downloaded cards: use Run AI Review in the dashboard.",
+        "2. For skipped (no URL / sources-sought): upload documents manually.",
+        "3. For failed (login/infra): regenerate auth.json via noVNC and retry.",
+        "",
+    ]
+
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(report_path)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Batch download SAM.gov documents for kept opportunities."
+    )
+    parser.add_argument(
+        "--stages", nargs="+", default=list(BATCH_STAGES),
+        help="Stages to include (default: Intake AI Review Development).",
+    )
+    parser.add_argument("--limit", type=int, default=10, help="Max candidates to download.")
+    parser.add_argument("--force", action="store_true", help="Re-download even if docs exist.")
+    parser.add_argument("--live", action="store_true", default=True, help="Use headed browser (requires noVNC).")
+    parser.add_argument("--headless", action="store_true", help="Use headless browser (overrides --live).")
+    parser.add_argument("--auth-state", default=DEFAULT_AUTH_STATE, help="Path to auth.json.")
+    parser.add_argument("--downloads-dir", default=DEFAULT_DOWNLOADS_DIR)
+    parser.add_argument("--extracts-dir", default=DEFAULT_EXTRACTS_DIR)
+    parser.add_argument("--state-csv", default=DEFAULT_STATE_CSV)
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    live = not args.headless
+
+    print("")
+    print("GovCon Scout — Batch Document Download")
+    print(f"Stages: {', '.join(args.stages)}")
+    print(f"Limit: {args.limit}  Force: {args.force}  Live: {live}")
+    print("")
+
+    def progress(step, total, results_so_far):
+        last = results_so_far[-1] if results_so_far else {}
+        print(f"[{step}/{total}] {last.get('notice_id', '?')} — {last.get('status', '?')}")
+
+    results, error = run_batch(
+        stages=args.stages,
+        limit=args.limit,
+        force=args.force,
+        live=live,
+        auth_state=args.auth_state,
+        downloads_dir=args.downloads_dir,
+        extracts_dir=args.extracts_dir,
+        state_csv=args.state_csv,
+        progress_callback=progress,
+    )
+
+    if error:
+        print(f"Batch could not start: {error}")
+        sys.exit(1)
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    report_path = Path(DEFAULT_BATCH_RUNS_DIR) / f"batch_download_docs_{stamp}.md"
+    report_path = write_batch_report(results, report_path, set(args.stages), args.limit, args.force, live)
+
+    downloaded = sum(1 for r in results if r["status"] == STATUS_DOWNLOADED)
+    skipped = sum(1 for r in results if r["status"].startswith("skipped_"))
+    failed = sum(1 for r in results if r["status"].startswith("failed_"))
+
+    print("")
+    print(f"Done. Downloaded: {downloaded}  Skipped: {skipped}  Failed: {failed}")
+    print(f"Report: {report_path}")
+    print("")
+
+
+if __name__ == "__main__":
+    main()
