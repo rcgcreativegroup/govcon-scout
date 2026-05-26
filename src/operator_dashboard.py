@@ -786,6 +786,12 @@ def inspect_text_for_disqualifiers(row, export_row):
 
 
 def ensure_state_schema():
+    """Explicit maintenance helper for repairing dashboard state schema.
+
+    This function can create or rewrite data/opportunity_state.csv. It must not
+    be called from dashboard startup; invoke it only from an intentional
+    maintenance flow where CSV mutation is expected and reviewed.
+    """
     run_local_state_builder_if_needed()
     fieldnames, rows = read_csv(OPPORTUNITY_STATE_PATH)
     if not fieldnames:
@@ -2681,8 +2687,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def initialize():
-    # Dashboard startup must remain read-only. Do not call write, backup,
-    # enrichment, or backfill helpers here; explicit operator actions own writes.
+    """Initialize dashboard process without mutating local workflow data.
+
+    Startup may read CSV/config files or prepare in-memory state only. It must
+    not call schema repair, backup, enrichment, backfill, or CSV write helpers;
+    explicit operator actions/API requests own all writes.
+    """
     return ""
 
 

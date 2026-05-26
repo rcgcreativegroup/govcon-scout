@@ -56,3 +56,10 @@ reports/triage/govcon_triage_board.md
 - Sources sought, RFI, market research, special notice, and pre-solicitation items are early-stage strategy opportunities. They should route to `sources_sought_planner.py`, not be treated as failed solicitations.
 - Live infrastructure failures exit with code `86` and should not create manual-review reports. Manual-review reports are for opportunity/download/document issues.
 - Do not run broad live batches until the triage board shows which manual-review items are worth retrying or improving selectors for.
+
+### Dashboard startup safety
+
+- Operator dashboard startup is intended to be read-only.
+- Mutating actions should only occur through explicit operator actions or API requests.
+- `data/opportunity_state.csv` should not be auto-repaired or rewritten on startup.
+- Maintenance and schema-repair helpers must be invoked intentionally, with CSV mutation reviewed before use.
