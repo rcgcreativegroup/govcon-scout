@@ -2567,6 +2567,8 @@ def workspace_read_draft_file(notice_id, draft_type):
 
 _batch_state = {
     "running": False,
+    "waiting_for_login": False,
+    "login_message": "",
     "run_id": "",
     "started_at": "",
     "stages": [],
@@ -2579,8 +2581,10 @@ _batch_state = {
     "done": False,
     "error": "",
     "report_path": "",
+    "_cancelled": False,
 }
 _batch_state_lock = threading.Lock()
+_batch_login_event = threading.Event()
 
 
 def batch_state_snapshot():
@@ -2589,42 +2593,116 @@ def batch_state_snapshot():
 
 
 def _run_batch_thread(stages, limit, force, live):
-    from batch_download_docs import run_batch, write_batch_report
+    from batch_download_docs import (
+        load_and_select,
+        live_preflight_check,
+        needs_login_gate,
+        process_candidate,
+        write_batch_report,
+        DEFAULT_AUTH_STATE,
+        DEFAULT_DOWNLOADS_DIR,
+        DEFAULT_EXTRACTS_DIR,
+        DEFAULT_STATE_CSV,
+    )
 
-    def progress_callback(step, total, results_so_far):
-        with _batch_state_lock:
-            _batch_state["completed"] = step
-            _batch_state["total"] = total
-            _batch_state["results"] = list(results_so_far)
-
-    try:
-        results, error = run_batch(
-            stages=list(stages),
-            limit=limit,
-            force=force,
-            live=live,
-            progress_callback=progress_callback,
-        )
-        stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
-        report_path = ""
-        if results is not None:
-            rp = BATCH_RUNS_DIR / f"batch_download_docs_{stamp}.md"
-            try:
-                report_path = write_batch_report(results, rp, set(stages), limit, force, live)
-            except Exception as write_err:
-                error = error or str(write_err)
+    def _finish(results, error="", report_path=""):
         with _batch_state_lock:
             _batch_state["running"] = False
+            _batch_state["waiting_for_login"] = False
+            _batch_state["login_message"] = ""
             _batch_state["done"] = True
             _batch_state["results"] = list(results or [])
-            _batch_state["error"] = error or ""
+            _batch_state["error"] = error
             _batch_state["report_path"] = report_path
-            _batch_state["completed"] = len([r for r in (results or []) if not r.get("status", "").startswith("skipped_")])
+            _batch_state["completed"] = len([
+                r for r in (results or [])
+                if not r.get("status", "").startswith("skipped_")
+            ])
+
+    try:
+        auth_state = DEFAULT_AUTH_STATE
+        downloads_dir = DEFAULT_DOWNLOADS_DIR
+        extracts_dir = DEFAULT_EXTRACTS_DIR
+        state_csv = DEFAULT_STATE_CSV
+
+        # Phase 1: noVNC preflight
+        if live:
+            ready, msg = live_preflight_check()
+            if not ready:
+                _finish([], error=msg)
+                return
+
+        # Phase 2: candidate selection (fast — no downloads yet)
+        skipped_results, active_candidates = load_and_select(
+            stages, limit, force, downloads_dir, extracts_dir, state_csv
+        )
+        with _batch_state_lock:
+            _batch_state["results"] = list(skipped_results)
+            _batch_state["total"] = len(active_candidates)
+
+        # Phase 3: login gate — always gate in live mode; gate headless if no auth.json
+        gate, gate_msg = needs_login_gate(live, auth_state)
+        if gate:
+            with _batch_state_lock:
+                _batch_state["waiting_for_login"] = True
+                _batch_state["login_message"] = gate_msg
+            _batch_login_event.clear()
+            resumed = _batch_login_event.wait(timeout=1800)  # 30 min
+            if not resumed:
+                _finish(skipped_results, error="Login gate timed out (30 min). Start a new batch.")
+                return
+            with _batch_state_lock:
+                cancelled = _batch_state.get("_cancelled", False)
+                _batch_state["waiting_for_login"] = False
+                _batch_state["login_message"] = ""
+            if cancelled:
+                _finish(skipped_results, error="Batch cancelled by operator.")
+                return
+
+        # Phase 4: process active candidates
+        headless = not live
+        results = list(skipped_results)
+        total = len(active_candidates)
+
+        for step, c in enumerate(active_candidates, start=1):
+            with _batch_state_lock:
+                if _batch_state.get("_cancelled"):
+                    break
+            download_result = process_candidate(
+                notice_id=c["notice_id"],
+                url=c["url"],
+                auth_state=auth_state,
+                downloads_dir=downloads_dir,
+                headless=headless,
+            )
+            results.append({
+                "notice_id": c["notice_id"],
+                "title": c["title"],
+                "stage": c["stage"],
+                "source": c["source"],
+                "url": c["url"],
+                **download_result,
+            })
+            with _batch_state_lock:
+                _batch_state["results"] = list(results)
+                _batch_state["completed"] = step
+                _batch_state["total"] = total
+
+        # Phase 5: write report
+        report_path = ""
+        try:
+            stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+            rp = BATCH_RUNS_DIR / f"batch_download_docs_{stamp}.md"
+            report_path = write_batch_report(results, rp, set(stages), limit, force, live)
+        except Exception:
+            pass
+
+        _finish(results, report_path=report_path)
+
     except Exception as exc:
         with _batch_state_lock:
-            _batch_state["running"] = False
-            _batch_state["done"] = True
-            _batch_state["error"] = str(exc)
+            results_so_far = list(_batch_state.get("results", []))
+        _finish(results_so_far, error=str(exc))
 
 
 def handle_batch_download_docs_request(payload):
@@ -2650,8 +2728,11 @@ def handle_batch_download_docs_request(payload):
         if _batch_state["running"]:
             return {"status": "error", "message": "A batch download is already running."}, 409
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        _batch_login_event.clear()
         _batch_state.update({
             "running": True,
+            "waiting_for_login": False,
+            "login_message": "",
             "run_id": run_id,
             "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "stages": stages,
@@ -2664,6 +2745,7 @@ def handle_batch_download_docs_request(payload):
             "done": False,
             "error": "",
             "report_path": "",
+            "_cancelled": False,
         })
 
     thread = threading.Thread(
@@ -2681,6 +2763,20 @@ def handle_batch_download_docs_request(payload):
         "force": force,
         "live": live,
     }, 200
+
+
+def handle_batch_download_continue_request(payload):
+    cancel = bool(payload.get("cancel", False))
+    with _batch_state_lock:
+        if not _batch_state["running"]:
+            return {"status": "error", "message": "No batch is currently running."}, 400
+        if not _batch_state.get("waiting_for_login"):
+            return {"status": "error", "message": "Batch is not waiting for login."}, 400
+        if cancel:
+            _batch_state["_cancelled"] = True
+    _batch_login_event.set()
+    action = "cancelled" if cancel else "resumed"
+    return {"status": "ok", "action": action}, 200
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -2770,6 +2866,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.handle_workspace_save_draft()
             if parsed.path == "/api/batch-download-docs":
                 return self.handle_batch_download_docs()
+            if parsed.path == "/api/batch-download-continue":
+                return self.handle_batch_download_continue()
             return json_response(self, {"error": "Not found"}, 404)
         except RequestTooLarge as error:
             return json_response(self, {"status": "error", "message": str(error)}, error.status)
@@ -2984,6 +3082,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def handle_batch_download_docs(self):
         payload = self.read_json_body()
         result, status_code = handle_batch_download_docs_request(payload)
+        return json_response(self, result, status_code)
+
+    def handle_batch_download_continue(self):
+        payload = self.read_json_body()
+        result, status_code = handle_batch_download_continue_request(payload)
         return json_response(self, result, status_code)
 
     def serve_safe_file(self, parsed):

@@ -293,6 +293,78 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless):
     }
 
 
+def needs_login_gate(live, auth_state=None):
+    """
+    Returns (needs_gate: bool, message: str).
+    Live mode always gates — operator must confirm SAM.gov login via noVNC.
+    Headless mode gates only if auth.json is missing.
+    """
+    if live:
+        return True, (
+            "SAM.gov login required. Open noVNC, log in to SAM.gov, "
+            "then click Continue Batch."
+        )
+    auth = auth_state or DEFAULT_AUTH_STATE
+    if not auth_state_ready(auth):
+        return True, (
+            f"No SAM.gov session found at {auth}. "
+            "Regenerate auth.json or switch to live (noVNC) mode."
+        )
+    return False, ""
+
+
+def load_and_select(stages, limit, force, downloads_dir=None, extracts_dir=None, state_csv=None):
+    """
+    Reads the state CSV, applies candidate selection rules, and returns
+    (skipped_results, active_candidates) without running any downloads.
+
+    skipped_results  — list of result dicts (status already determined)
+    active_candidates — list of {"notice_id", "url", "title", "stage", "source"}
+    """
+    downloads_dir = downloads_dir or DEFAULT_DOWNLOADS_DIR
+    extracts_dir = extracts_dir or DEFAULT_EXTRACTS_DIR
+    state_csv = state_csv or DEFAULT_STATE_CSV
+
+    state_path = Path(state_csv)
+    if not state_path.exists():
+        raise FileNotFoundError(f"State CSV not found: {state_csv}")
+
+    rows = []
+    with state_path.open("r", encoding="utf-8", newline="") as f:
+        rows = [dict(row) for row in csv_module.DictReader(f)]
+
+    candidates = select_candidates(rows, set(stages), limit, force, downloads_dir, extracts_dir)
+
+    skipped_results = []
+    active_candidates = []
+    for c in candidates:
+        row = c["row"]
+        if c["skip"]:
+            skipped_results.append({
+                "notice_id": c["notice_id"],
+                "title": safe_text(row.get("title"))[:80],
+                "stage": safe_text(row.get("macro_stage")),
+                "source": safe_text(row.get("source")),
+                "url": c["url"],
+                "status": c["skip_reason"],
+                "error": "",
+                "downloads_folder": "",
+                "attachment_count": 0,
+                "extracted_zips": 0,
+                "next_action": _next_action_for_skip(c["skip_reason"]),
+            })
+        else:
+            active_candidates.append({
+                "notice_id": c["notice_id"],
+                "url": c["url"],
+                "title": safe_text(row.get("title"))[:80],
+                "stage": safe_text(row.get("macro_stage")),
+                "source": safe_text(row.get("source")),
+            })
+
+    return skipped_results, active_candidates
+
+
 def run_batch(
     stages=None,
     limit=10,

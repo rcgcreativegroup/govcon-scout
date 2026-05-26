@@ -1805,12 +1805,25 @@
       const failed = results.filter(r => r.status.startsWith("failed_")).length;
 
       let html = "";
-      if (state.running && !state.done) {
+      if (state.waiting_for_login) {
+        html += `<div style="color:var(--amber);margin-bottom:6px;font-size:12px;">&#9888; SAM.gov login required.</div>`;
+        html += `<div style="color:var(--secondary);margin-bottom:10px;">Open noVNC, log in to SAM.gov, then click Continue Batch.</div>`;
+        if (results.length) {
+          html += `<div style="color:var(--muted);margin-bottom:8px;">${skipped} candidate(s) pre-screened and skipped. ${state.total || 0} pending download after login.</div>`;
+        }
+        html += `<div style="display:flex;gap:8px;margin-bottom:10px;">
+          <button id="batchContinueBtn" class="go" style="flex:2;">Continue Batch</button>
+          <button id="batchCancelBtn" style="flex:1;color:var(--red);border-color:#663333;background:transparent;">Cancel</button>
+        </div>`;
+      } else if (state.running && !state.done) {
         html += `<div style="color:var(--cyan);margin-bottom:6px;">Running&#8230; ${state.completed || 0} / ${state.total || "?"} active candidates</div>`;
       } else if (state.done && state.error && !results.length) {
         html += `<div style="color:var(--red);margin-bottom:6px;">Could not start: ${h(state.error)}</div>`;
       } else if (state.done) {
         html += `<div style="color:var(--green);margin-bottom:6px;">Done. Downloaded: ${downloaded}  Skipped: ${skipped}  Failed: ${failed}</div>`;
+        if (state.error) {
+          html += `<div style="color:var(--amber);margin-bottom:4px;">${h(state.error)}</div>`;
+        }
         if (state.report_path) {
           html += `<div style="color:var(--secondary);margin-bottom:6px;">Report: <a href="/file?path=${encodeURIComponent(state.report_path)}" target="_blank">${h(state.report_path)}</a></div>`;
         }
@@ -1825,6 +1838,42 @@
       }
 
       body.innerHTML = html;
+
+      const continueBtn = document.getElementById("batchContinueBtn");
+      if (continueBtn) {
+        continueBtn.onclick = async () => {
+          continueBtn.disabled = true;
+          continueBtn.textContent = "Resuming…";
+          try {
+            await api("/api/batch-download-continue", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ cancel: false }),
+            });
+          } catch (err) {
+            flashStatus(err.message || "Continue failed.", 2500);
+            continueBtn.disabled = false;
+            continueBtn.textContent = "Continue Batch";
+          }
+        };
+      }
+      const cancelBtn = document.getElementById("batchCancelBtn");
+      if (cancelBtn) {
+        cancelBtn.onclick = async () => {
+          try {
+            await api("/api/batch-download-continue", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ cancel: true }),
+            });
+            stopBatchPolling();
+            panel.classList.remove("open");
+          } catch (err) {
+            flashStatus(err.message || "Cancel failed.", 2500);
+          }
+        };
+      }
+
       if (closeBtn) {
         closeBtn.disabled = state.running && !state.done;
         closeBtn.onclick = () => {
@@ -1848,9 +1897,9 @@
         try {
           const state = await api("/api/batch-download-status");
           renderBatchProgress(state);
-          if (state.done || (!state.running && !state.done)) {
+          if (state.done) {
             stopBatchPolling();
-            if (state.done && (state.results || []).some(r => r.status === "downloaded")) {
+            if ((state.results || []).some(r => r.status === "downloaded")) {
               await load();
             }
           }
