@@ -37,10 +37,14 @@ SOURCE_URL_FIELDS = [
 ]
 
 STATUS_DOWNLOADED = "downloaded"
+STATUS_SKIPPED_STAGE = "skipped_stage_not_eligible"
+STATUS_SKIPPED_WATCH = "skipped_watch_list_only"
+STATUS_SKIPPED_PASS_ARCHIVE = "skipped_pass_or_archive"
+STATUS_SKIPPED_MYBIDMATCH_NO_SAM = "skipped_mybidmatch_no_sam_url"
 STATUS_SKIPPED_HAS_DOCS = "skipped_already_has_docs"
 STATUS_SKIPPED_NO_URL = "skipped_no_url"
-STATUS_SKIPPED_SOURCE = "skipped_source_not_supported"
 STATUS_SKIPPED_ROUTE = "skipped_sources_sought_route"
+STATUS_SKIPPED_DUPLICATE = "skipped_duplicate_secondary"
 STATUS_FAILED_INFRA = "failed_login_or_live_infra"
 STATUS_FAILED_NO_LINK = "failed_no_download_link"
 STATUS_FAILED_OTHER = "failed_other"
@@ -78,6 +82,10 @@ def get_source_url(row):
     return ""
 
 
+def boolish(value):
+    return safe_text(value).lower() in {"1", "true", "yes", "y", "watch", "watched", "on"}
+
+
 def has_existing_downloads(notice_id, downloads_dir, extracts_dir):
     if not notice_id:
         return False
@@ -100,9 +108,54 @@ def is_sources_sought_only(row):
     return route == "sources_sought"
 
 
+def is_duplicate_secondary(row):
+    route = safe_text(row.get("route")).lower()
+    resolution = safe_text(row.get("mybidmatch_resolution_status")).lower()
+    status_text = " ".join([
+        safe_text(row.get("triage_status")),
+        safe_text(row.get("processed_status")),
+        safe_text(row.get("operator_status")),
+    ]).lower()
+    return (
+        route == "duplicate"
+        or "duplicate" in resolution
+        or "already covered" in resolution
+        or "duplicate" in status_text
+    )
+
+
 def is_mybidmatch_only(row):
     source = safe_text(row.get("source")).lower()
     return "mybidmatch" in source and "govcon" not in source
+
+
+def is_watch_list_only(row, eligible_stages):
+    if not boolish(row.get("watch_list")):
+        return False
+    stage = safe_text(row.get("macro_stage"))
+    operator_status = safe_text(row.get("operator_status")).lower()
+    return stage not in eligible_stages or operator_status in {"", "watch", "watched", "hold"}
+
+
+def is_pass_or_archive(row):
+    stage = safe_text(row.get("macro_stage")).lower()
+    operator_status = safe_text(row.get("operator_status")).lower()
+    last_action = safe_text(row.get("last_operator_action")).lower()
+    if stage in {"pass", "archive", "archived", "done"}:
+        return True
+    if operator_status in {"pass", "passed", "archive", "archived", "done", "disqualified"}:
+        return True
+    return "passed/archived" in last_action or "auto_archived" in last_action
+
+
+def skipped_candidate(row, notice_id, url, reason):
+    return {
+        "row": row,
+        "notice_id": notice_id,
+        "url": url,
+        "skip": True,
+        "skip_reason": reason,
+    }
 
 
 def count_downloads(notice_id, downloads_dir):
@@ -171,37 +224,37 @@ def profile_ready(profile_dir):
 def select_candidates(rows, stages, limit, force, downloads_dir, extracts_dir):
     candidates = []
     kept = 0
+    stages = set(stages)
     for row in rows:
         stage = safe_text(row.get("macro_stage"))
-        if stage not in stages:
-            continue
         notice_id = safe_notice_id(safe_text(row.get("notice_id")))
         if not notice_id:
             continue
         url = get_source_url(row)
+
+        if is_duplicate_secondary(row):
+            candidates.append(skipped_candidate(row, notice_id, url, STATUS_SKIPPED_DUPLICATE))
+            continue
+        if is_watch_list_only(row, stages):
+            candidates.append(skipped_candidate(row, notice_id, url, STATUS_SKIPPED_WATCH))
+            continue
+        if is_pass_or_archive(row):
+            candidates.append(skipped_candidate(row, notice_id, url, STATUS_SKIPPED_PASS_ARCHIVE))
+            continue
         if is_sources_sought_only(row):
-            candidates.append({
-                "row": row, "notice_id": notice_id, "url": url,
-                "skip": True, "skip_reason": STATUS_SKIPPED_ROUTE,
-            })
+            candidates.append(skipped_candidate(row, notice_id, url, STATUS_SKIPPED_ROUTE))
             continue
         if is_mybidmatch_only(row) and not url:
-            candidates.append({
-                "row": row, "notice_id": notice_id, "url": url,
-                "skip": True, "skip_reason": STATUS_SKIPPED_SOURCE,
-            })
+            candidates.append(skipped_candidate(row, notice_id, url, STATUS_SKIPPED_MYBIDMATCH_NO_SAM))
+            continue
+        if stage not in stages:
+            candidates.append(skipped_candidate(row, notice_id, url, STATUS_SKIPPED_STAGE))
             continue
         if not url:
-            candidates.append({
-                "row": row, "notice_id": notice_id, "url": url,
-                "skip": True, "skip_reason": STATUS_SKIPPED_NO_URL,
-            })
+            candidates.append(skipped_candidate(row, notice_id, url, STATUS_SKIPPED_NO_URL))
             continue
         if not force and has_existing_downloads(notice_id, downloads_dir, extracts_dir):
-            candidates.append({
-                "row": row, "notice_id": notice_id, "url": url,
-                "skip": True, "skip_reason": STATUS_SKIPPED_HAS_DOCS,
-            })
+            candidates.append(skipped_candidate(row, notice_id, url, STATUS_SKIPPED_HAS_DOCS))
             continue
         if kept >= limit:
             continue
@@ -216,7 +269,7 @@ def select_candidates(rows, stages, limit, force, downloads_dir, extracts_dir):
 def _next_action_for_skip(skip_reason):
     if skip_reason == STATUS_SKIPPED_HAS_DOCS:
         return NEXT_ACTION_AI_REVIEW
-    if skip_reason in {STATUS_SKIPPED_NO_URL, STATUS_SKIPPED_SOURCE}:
+    if skip_reason in {STATUS_SKIPPED_NO_URL, STATUS_SKIPPED_MYBIDMATCH_NO_SAM}:
         return NEXT_ACTION_MANUAL
     return NEXT_ACTION_SKIP
 
