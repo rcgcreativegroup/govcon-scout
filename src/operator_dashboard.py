@@ -2814,13 +2814,15 @@ def handle_batch_download_continue_request(payload):
 
 
 def handle_batch_download_open_login_request():
-    """Launch SAM.gov in a detached Chromium subprocess using the persistent profile.
+    """Launch SAM.gov in a detached Playwright Chromium window via the helper script.
+
+    Uses scripts/open_sam_login_browser.sh which runs:
+        playwright open --user-data-dir <profile_dir> https://sam.gov
+    This is the same path as the known-working manual command and uses the
+    Playwright-managed Chromium binary rather than a native system browser.
 
     Deliberately does NOT use Playwright in-process. No Playwright objects are
     created, stored, or shared — eliminating all cross-thread reuse risk.
-    The operator completes login in the subprocess window, closes it, then clicks
-    'I'm Logged In — Close Login & Continue Downloads' to trigger the fresh
-    in-thread session check via check_sam_profile_session.
     """
     display = os.environ.get("DISPLAY", ":99")
     os.environ.setdefault("DISPLAY", display)
@@ -2828,47 +2830,37 @@ def handle_batch_download_open_login_request():
     try:
         from batch_download_docs import DEFAULT_PROFILE_DIR
     except ImportError:
-        DEFAULT_PROFILE_DIR = ".browser/sam-profile"
+        DEFAULT_PROFILE_DIR = str(BASE_DIR / ".browser/sam-profile")
 
     profile_path = Path(DEFAULT_PROFILE_DIR)
     profile_path.mkdir(parents=True, exist_ok=True)
 
-    browsers = ["chromium-browser", "chromium", "google-chrome", "google-chrome-stable"]
-    for browser_cmd in browsers:
-        if shutil.which(browser_cmd):
-            try:
-                subprocess.Popen(
-                    [
-                        browser_cmd,
-                        "--no-first-run",
-                        "--no-default-browser-check",
-                        f"--user-data-dir={profile_path}",
-                        "--no-sandbox",
-                        "https://sam.gov",
-                    ],
-                    env={**os.environ, "DISPLAY": display},
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                return {
-                    "status": "ok",
-                    "message": (
-                        f"SAM.gov opened in {browser_cmd}. Complete Login.gov/MFA, "
-                        "close the browser, then click "
-                        "I’m Logged In — Close Login & Continue Downloads."
-                    ),
-                }, 200
-            except Exception:
-                continue
+    helper = BASE_DIR / "scripts" / "open_sam_login_browser.sh"
+    log_path = "/tmp/sam_login_browser.log"
 
-    return {
-        "status": "error",
-        "message": (
-            f"No browser found. Open SAM.gov manually in noVNC "
-            f"using profile: {DEFAULT_PROFILE_DIR}."
-        ),
-    }, 500
+    try:
+        subprocess.Popen(
+            ["bash", str(helper), str(profile_path)],
+            env={**os.environ, "DISPLAY": display},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {
+            "status": "ok",
+            "message": (
+                "SAM.gov login browser opening in noVNC. "
+                "Complete Login.gov/MFA, close the browser, then click "
+                "I’m Logged In — Close Login & Continue Downloads."
+            ),
+        }, 200
+    except Exception as exc:
+        safe_err = str(exc)[:200]
+        return {
+            "status": "error",
+            "message": "Could not open SAM.gov login browser.",
+            "details": safe_err,
+        }, 500
 
 
 def handle_batch_download_cancel_request():

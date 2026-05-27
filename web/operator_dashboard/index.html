@@ -1856,19 +1856,19 @@
           openLoginBtn.disabled = true;
           openLoginBtn.textContent = "Opening…";
           try {
-            await api("/api/batch-download-open-login", {
+            const result = await api("/api/batch-download-open-login", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({}),
             });
-            openLoginBtn.textContent = "SAM.gov Opened";
+            openLoginBtn.textContent = result.message || "SAM.gov Opened";
           } catch (err) {
             openLoginBtn.textContent = err.message || "Could not open browser";
           }
           setTimeout(() => {
             openLoginBtn.disabled = false;
             openLoginBtn.textContent = "🔗 Open SAM.gov Login in noVNC";
-          }, 4000);
+          }, 6000);
         };
       }
 
