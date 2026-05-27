@@ -327,17 +327,34 @@ def open_browser_context(playwright, auth_state, headless=True, profile_dir=""):
 
 def page_looks_logged_out(page):
     html = page.content().lower()
-
+    # "sign in" is intentionally omitted — SAM.gov's Angular bundle includes that
+    # text in every page regardless of auth state, causing false positives.
     logged_out_markers = [
         "role-anonymous",
         'id="signin"',
         "signin-trigger-btn",
-        "sign in",
         '"uid":0',
         "sign-in-button-current",
     ]
-
     return any(marker in html for marker in logged_out_markers)
+
+
+def page_looks_logged_in(page):
+    """Returns True if the page contains strong positive authenticated-state markers."""
+    html = page.content().lower()
+    logged_in_markers = [
+        "role-authenticated",
+        "sign out",
+        "signout",
+        "log out",
+        "logout",
+        "my workspace",
+        "sam-workspace",
+        "workspace-header",
+        "user-menu",
+        "account-menu",
+    ]
+    return any(marker in html for marker in logged_in_markers)
 
 
 def test_auth(auth_state, headless=True, screenshot_path="sam-session-test.png", profile_dir=""):

@@ -1887,7 +1887,7 @@
           } catch (err) {
             confirmLoginBtn.disabled = false;
             confirmLoginBtn.textContent = "I’m Logged In — Close Login & Continue Downloads";
-            flashStatus(err.message || "Session not confirmed. Complete SAM.gov login first.", 5000);
+            flashStatus(err.message || "SAM.gov still appears logged out. Check the debug screenshot or reopen SAM.gov Login.", 8000);
           }
         };
       }

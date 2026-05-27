@@ -420,16 +420,36 @@ def check_sam_profile_session(profile_dir=None, display=None):
     Creates, uses, and closes its own sync_playwright instance. Never reuses
     Playwright objects across threads.
 
-    Returns dict with keys: ok (bool), code (str), message (str).
+    Navigates to https://sam.gov/workspace (requires auth) and evaluates:
+      1. URL after navigation — redirect to login.gov = definitive logged-out
+      2. Positive logged-in markers (role-authenticated, sign out, my workspace…)
+      3. Strong negative markers (role-anonymous, id="signin"…)
+      4. If neither set of markers fires, assumes logged in (benefit of the doubt
+         after the operator completed manual login).
+
+    Always saves debug artifacts to downloads/_debug/sam_profile_check.{html,png}.
+
+    Returns dict: {ok, code, message, debug_html, debug_png}
     Codes: logged_in | not_logged_in | profile_locked | no_session |
-           playwright_thread_error | playwright_unavailable
+           playwright_thread_error | playwright_unavailable | auth_json
     """
-    prof_path = Path(profile_dir or DEFAULT_PROFILE_DIR)
+    prof_path = Path(profile_dir or DEFAULT_PROFILE_DIR).resolve()
+    debug_dir = BASE_DIR / "downloads" / "_debug"
+    debug_html_path = debug_dir / "sam_profile_check.html"
+    debug_png_path = debug_dir / "sam_profile_check.png"
+    debug_html_rel = str(debug_html_path.relative_to(BASE_DIR))
+    debug_png_rel = str(debug_png_path.relative_to(BASE_DIR))
 
     if not prof_path.exists():
         auth = DEFAULT_AUTH_STATE
         if auth_state_ready(auth):
-            return {"ok": True, "code": "auth_json", "message": "Using existing auth.json session."}
+            return {
+                "ok": True,
+                "code": "auth_json",
+                "message": "Using existing auth.json session.",
+                "debug_html": "",
+                "debug_png": "",
+            }
         return {
             "ok": False,
             "code": "no_session",
@@ -437,6 +457,8 @@ def check_sam_profile_session(profile_dir=None, display=None):
                 "No SAM browser profile or auth.json found. "
                 "Open SAM.gov Login in noVNC, complete login, then retry."
             ),
+            "debug_html": "",
+            "debug_png": "",
         }
 
     resolved_display = display or os.environ.get("DISPLAY", ":99")
@@ -449,6 +471,8 @@ def check_sam_profile_session(profile_dir=None, display=None):
             "ok": False,
             "code": "playwright_unavailable",
             "message": "Playwright is not installed. Cannot verify SAM.gov session.",
+            "debug_html": "",
+            "debug_png": "",
         }
 
     try:
@@ -477,51 +501,114 @@ def check_sam_profile_session(profile_dir=None, display=None):
                             "SAM browser profile is already open. "
                             "Close the login browser, then click Continue again."
                         ),
+                        "debug_html": "",
+                        "debug_png": "",
                     }
                 raise
 
             try:
                 page = context.pages[0] if context.pages else context.new_page()
-                page.goto("https://sam.gov", wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_timeout(2000)
+
+                # /workspace requires authentication and redirects to Login.gov when
+                # the session is absent — more reliable than the home page.
+                page.goto(
+                    "https://sam.gov/workspace",
+                    wait_until="load",
+                    timeout=30000,
+                )
+                # Allow Angular SPA to finish rendering auth state
+                page.wait_for_timeout(4000)
+
+                # Save debug artifacts before evaluation
+                debug_dir.mkdir(parents=True, exist_ok=True)
                 try:
-                    from sam_browser_downloader import page_looks_logged_out
-                    logged_out = page_looks_logged_out(page)
-                except ImportError:
-                    logged_out = False
-                if logged_out:
+                    debug_html_path.write_text(page.content(), encoding="utf-8")
+                except Exception:
+                    pass
+                try:
+                    page.screenshot(path=str(debug_png_path))
+                except Exception:
+                    pass
+
+                current_url = page.url.lower()
+
+                # URL is the strongest signal: Login.gov redirect = definitive logged-out
+                if "login.gov" in current_url or "idp.int.identitysandbox" in current_url:
                     return {
                         "ok": False,
                         "code": "not_logged_in",
                         "message": (
-                            "SAM.gov appears logged out. Complete Login.gov/MFA in noVNC, "
-                            "close the login browser, then try again."
+                            "SAM.gov redirected to Login.gov — session not active. "
+                            "Complete login in noVNC, close the login browser, then try again. "
+                            f"Debug screenshot: {debug_png_rel}"
                         ),
+                        "debug_html": debug_html_rel,
+                        "debug_png": debug_png_rel,
                     }
-                return {"ok": True, "code": "logged_in", "message": "SAM.gov session is active."}
+
+                try:
+                    from sam_browser_downloader import page_looks_logged_in, page_looks_logged_out
+                    is_logged_in = page_looks_logged_in(page)
+                    is_logged_out = page_looks_logged_out(page)
+                except ImportError:
+                    is_logged_in = False
+                    is_logged_out = False
+
+                if is_logged_in:
+                    return {
+                        "ok": True,
+                        "code": "logged_in",
+                        "message": "SAM.gov session is active.",
+                        "debug_html": debug_html_rel,
+                        "debug_png": debug_png_rel,
+                    }
+
+                if is_logged_out:
+                    return {
+                        "ok": False,
+                        "code": "not_logged_in",
+                        "message": (
+                            "SAM.gov still appears logged out. "
+                            "Check the debug screenshot or reopen SAM.gov Login. "
+                            f"Debug screenshot: {debug_png_rel}"
+                        ),
+                        "debug_html": debug_html_rel,
+                        "debug_png": debug_png_rel,
+                    }
+
+                # No clear markers in either direction — give benefit of the doubt
+                # after the operator manually completed login.
+                return {
+                    "ok": True,
+                    "code": "logged_in",
+                    "message": (
+                        "SAM.gov session verification inconclusive "
+                        "(no login prompt detected — proceeding). "
+                        f"Debug screenshot: {debug_png_rel}"
+                    ),
+                    "debug_html": debug_html_rel,
+                    "debug_png": debug_png_rel,
+                }
+
             finally:
                 try:
                     context.close()
                 except Exception:
                     pass
+
     except Exception as err:
         text = str(err).lower()
-        if "cannot switch" in text or "thread" in text or "event loop" in text:
-            return {
-                "ok": False,
-                "code": "playwright_thread_error",
-                "message": (
-                    "SAM browser session check could not run cleanly. "
-                    "Close the login browser and retry."
-                ),
-            }
+        is_thread_err = "cannot switch" in text or "thread" in text or "event loop" in text
         return {
             "ok": False,
             "code": "playwright_thread_error",
             "message": (
                 "SAM browser session check could not run cleanly. "
                 "Close the login browser and retry."
+                + (f" Detail: {str(err)[:120]}" if not is_thread_err else "")
             ),
+            "debug_html": debug_html_rel if debug_html_path.exists() else "",
+            "debug_png": debug_png_rel if debug_png_path.exists() else "",
         }
 
 

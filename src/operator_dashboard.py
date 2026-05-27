@@ -2805,7 +2805,12 @@ def handle_batch_download_continue_request(payload):
         fail_msg = result["message"]
         with _batch_state_lock:
             _batch_state["session_check_message"] = fail_msg
-        return {"status": result.get("code", "not_logged_in"), "message": fail_msg}, 400
+        resp = {"status": result.get("code", "not_logged_in"), "message": fail_msg}
+        if result.get("debug_html"):
+            resp["debug_html"] = result["debug_html"]
+        if result.get("debug_png"):
+            resp["debug_png"] = result["debug_png"]
+        return resp, 400
 
     with _batch_state_lock:
         _batch_state["session_check_message"] = ""
