@@ -414,6 +414,117 @@ def check_sam_session_live(live=True, auth_state=None, profile_dir=None):
     return True, ""
 
 
+def check_sam_profile_session(profile_dir=None, display=None):
+    """
+    Performs a fresh Playwright session check entirely within the calling thread.
+    Creates, uses, and closes its own sync_playwright instance. Never reuses
+    Playwright objects across threads.
+
+    Returns dict with keys: ok (bool), code (str), message (str).
+    Codes: logged_in | not_logged_in | profile_locked | no_session |
+           playwright_thread_error | playwright_unavailable
+    """
+    prof_path = Path(profile_dir or DEFAULT_PROFILE_DIR)
+
+    if not prof_path.exists():
+        auth = DEFAULT_AUTH_STATE
+        if auth_state_ready(auth):
+            return {"ok": True, "code": "auth_json", "message": "Using existing auth.json session."}
+        return {
+            "ok": False,
+            "code": "no_session",
+            "message": (
+                "No SAM browser profile or auth.json found. "
+                "Open SAM.gov Login in noVNC, complete login, then retry."
+            ),
+        }
+
+    resolved_display = display or os.environ.get("DISPLAY", ":99")
+    os.environ.setdefault("DISPLAY", resolved_display)
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {
+            "ok": False,
+            "code": "playwright_unavailable",
+            "message": "Playwright is not installed. Cannot verify SAM.gov session.",
+        }
+
+    try:
+        with sync_playwright() as pw:
+            try:
+                context = pw.chromium.launch_persistent_context(
+                    user_data_dir=str(prof_path),
+                    headless=True,
+                    args=["--no-sandbox", "--disable-dev-shm-usage"],
+                    viewport={"width": 1280, "height": 900},
+                )
+            except Exception as lock_err:
+                try:
+                    from sam_browser_downloader import is_profile_lock_error
+                    locked = is_profile_lock_error(lock_err)
+                except ImportError:
+                    locked = any(
+                        m in str(lock_err).lower()
+                        for m in ["lock", "already in use", "processsingleton"]
+                    )
+                if locked:
+                    return {
+                        "ok": False,
+                        "code": "profile_locked",
+                        "message": (
+                            "SAM browser profile is already open. "
+                            "Close the login browser, then click Continue again."
+                        ),
+                    }
+                raise
+
+            try:
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto("https://sam.gov", wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(2000)
+                try:
+                    from sam_browser_downloader import page_looks_logged_out
+                    logged_out = page_looks_logged_out(page)
+                except ImportError:
+                    logged_out = False
+                if logged_out:
+                    return {
+                        "ok": False,
+                        "code": "not_logged_in",
+                        "message": (
+                            "SAM.gov appears logged out. Complete Login.gov/MFA in noVNC, "
+                            "close the login browser, then try again."
+                        ),
+                    }
+                return {"ok": True, "code": "logged_in", "message": "SAM.gov session is active."}
+            finally:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+    except Exception as err:
+        text = str(err).lower()
+        if "cannot switch" in text or "thread" in text or "event loop" in text:
+            return {
+                "ok": False,
+                "code": "playwright_thread_error",
+                "message": (
+                    "SAM browser session check could not run cleanly. "
+                    "Close the login browser and retry."
+                ),
+            }
+        return {
+            "ok": False,
+            "code": "playwright_thread_error",
+            "message": (
+                "SAM browser session check could not run cleanly. "
+                "Close the login browser and retry."
+            ),
+        }
+
+
 def load_and_select(stages, limit, force, downloads_dir=None, extracts_dir=None, state_csv=None):
     """
     Reads the state CSV, applies candidate selection rules, and returns
