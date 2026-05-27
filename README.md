@@ -112,6 +112,34 @@ python scripts/dashboard_smoke_test.py
 - Do not blindly commit generated reports, downloads, exports, manual uploads, backups, raw MyBidMatch files, browser/session files, `auth.json`, `.env`, or `data/opportunity_state.csv`.
 - Review generated outputs intentionally and keep secrets or workflow state out of commits.
 
+### Streamlit Operator Console
+
+A Python-first parallel interface for SAM.gov document automation. Runs alongside the existing HTML dashboard — does not replace it.
+
+Start the console:
+
+```bash
+source scripts/novnc_reset.sh
+export DISPLAY=:99
+streamlit run streamlit_app.py --server.port 8501 --server.address 127.0.0.1
+```
+
+Then open the forwarded ports:
+- **Port 8501** — Streamlit Operator Console
+- **Port 6080** — noVNC (`vnc.html`) for SAM.gov login
+- **Port 8765** — existing HTML dashboard (still available)
+
+Use the Streamlit console to:
+- Check noVNC and SAM.gov session readiness
+- Open SAM.gov login in noVNC
+- Filter and select opportunities
+- Download documents (single or queue batch)
+- Run AI Review and apply proposed updates
+- View analysis packets, pricing reports, batch logs
+
+`.browser/sam-profile` is local-only and is never exposed through the UI.
+`auth.json` is a fallback session file; the persistent profile is preferred.
+
 ### Deferred dashboard cleanup
 
 - Stage order is currently duplicated between `config/stage_enums.json` and the frontend stage ribbon/keyboard logic. Backend validation reads the config; a frontend refactor should be done separately with browser verification.

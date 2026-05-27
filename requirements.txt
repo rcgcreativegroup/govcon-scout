@@ -6,3 +6,4 @@ pypdf
 openpyxl
 anthropic
 beautifulsoup4
+streamlit
