@@ -797,11 +797,28 @@ with st.sidebar:
     )
 
     if st.button("Open SAM.gov Login", key="btn_sam_open"):
-        rc, out, err = run_cmd(
-            ["bash", "scripts/open_sam_login_browser.sh", str(PROFILE_DIR)],
-            timeout=10,
-        )
-        msg = out.strip() or (f"Error: {err.strip()}" if err.strip() else "Browser launch attempted.")
+        try:
+            env = os.environ.copy()
+            env["DISPLAY"] = env.get("DISPLAY") or ":99"
+            log_path = "/tmp/sam_login_browser.log"
+            proc = subprocess.Popen(
+                ["bash", "scripts/open_sam_login_browser.sh", str(PROFILE_DIR)],
+                cwd=str(ROOT),
+                env=env,
+                stdout=open(log_path, "a"),
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            _set("sam_login_browser_pid", proc.pid)
+            msg = (
+                f"SAM.gov login browser opened (PID {proc.pid}).\n"
+                f"Complete Login.gov/MFA in noVNC, then close the browser window.\n"
+                f"Log: {log_path}\n"
+                f"If the browser is hidden or locked, click "
+                f"'Close SAM Login Browser / Release Profile'."
+            )
+        except Exception as exc:
+            msg = f"Failed to launch SAM login browser: {exc}"
         _set("cmd_output", msg)
         _set("cmd_label", "Open SAM Login")
 
