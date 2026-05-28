@@ -7,6 +7,7 @@ when available, with auth.json retained as a fallback.
 """
 
 import argparse
+import csv as csv_module
 import json
 import os
 import re
@@ -22,7 +23,8 @@ DEFAULT_PROFILE_DIR = str(BASE_DIR / ".browser/sam-profile")
 DEFAULT_DOWNLOADS_DIR = str(BASE_DIR / "downloads")
 DEFAULT_EXTRACTS_DIR = str(BASE_DIR / "reports/document_extracts")
 DEFAULT_BATCH_RUNS_DIR = str(BASE_DIR / "reports/batch_runs")
-DEFAULT_STATE_PATH = str(BASE_DIR / "data/opportunity_state.json")
+DEFAULT_STATE_CSV  = str(BASE_DIR / "data/opportunity_state.csv")
+DEFAULT_STATE_PATH = DEFAULT_STATE_CSV  # legacy alias — kept for CLI arg compat
 NOVNC_CHECK_SCRIPT = str(BASE_DIR / "scripts/novnc_check.sh")
 
 BATCH_STAGES = {"Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"}
@@ -47,6 +49,7 @@ STATUS_SKIPPED_ROUTE = "skipped_sources_sought_route"
 STATUS_SKIPPED_DUPLICATE = "skipped_duplicate_secondary"
 STATUS_FAILED_INFRA = "failed_login_or_live_infra"
 STATUS_FAILED_NO_LINK = "failed_no_download_link"
+STATUS_FAILED_ATTACHMENT_CLICK = "failed_attachment_click_or_download"
 STATUS_FAILED_OTHER = "failed_other"
 
 NEXT_ACTION_AI_REVIEW = "Run AI Review"
@@ -299,6 +302,7 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless, profi
 
     Path(downloads_dir, notice_id).mkdir(parents=True, exist_ok=True)
 
+    _meta = {}
     try:
         downloaded = download_for_notice(
             auth_state=auth_state,
@@ -309,6 +313,7 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless, profi
             debug=True,
             profile_dir=profile_dir or "",
             skip_session_check=skip_session_check,
+            _meta=_meta,
         )
     except SystemExit as err:
         code = getattr(err, "code", 1)
@@ -353,9 +358,20 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless, profi
         }
 
     if not downloaded:
+        # Distinguish: UI was found but click/download failed vs. no UI at all
+        if _meta.get("attachment_ui_found"):
+            fail_status = STATUS_FAILED_ATTACHMENT_CLICK
+            fail_error  = (
+                f"Attachment UI detected (Download All={_meta.get('download_all_found')}, "
+                f"candidates={_meta.get('direct_candidates', 0)}) but no files downloaded. "
+                "Check debug HTML/PNG in downloads/_debug/."
+            )
+        else:
+            fail_status = STATUS_FAILED_NO_LINK
+            fail_error  = "No solicitation files or attachment UI found. Check debug screenshots."
         return {
-            "status": STATUS_FAILED_NO_LINK,
-            "error": "No solicitation files found or downloaded. Check debug screenshots.",
+            "status": fail_status,
+            "error": fail_error,
             "downloads_folder": str(Path(downloads_dir) / notice_id),
             "attachment_count": 0,
             "extracted_zips": 0,
@@ -734,9 +750,10 @@ def run_batch(
 
     path = Path(state_path)
     if not path.exists():
-        return [], f"State JSON not found: {state_path}"
+        return [], f"State CSV not found: {state_path}"
 
-    rows = json.loads(path.read_text(encoding="utf-8"))
+    with path.open("r", encoding="utf-8", newline="") as _f:
+        rows = [dict(r) for r in csv_module.DictReader(_f)]
 
     candidates = select_candidates(rows, stages, limit, force, downloads_dir, extracts_dir)
     headless = not live

@@ -196,7 +196,31 @@ def looks_like_bid_attachment_filename(text):
 
 
 def looks_like_download_all(text):
-    return safe_text(text).lower() == "download all attachments"
+    # Match "Download All", "Download All Attachments", "DOWNLOAD ALL", etc.
+    return "download all" in safe_text(text).lower()
+
+
+def is_direct_attachment_filename(text, href=""):
+    """
+    Returns True for links that look like solicitation attachment files on a SAM.gov
+    workspace/opportunity page.  Does NOT require PIEE keyword matching — the Attachments
+    section context is sufficient signal; we only filter by extension and bad-name lists.
+    """
+    lower_text = safe_text(text).lower()
+    lower_href  = safe_text(href).lower()
+    if not lower_text and not lower_href:
+        return False
+    has_ext = any(
+        lower_text.endswith(ext) or lower_href.endswith(ext)
+        for ext in DOWNLOAD_EXTENSIONS
+    )
+    if not has_ext:
+        return False
+    if is_bad_download_name(lower_text):
+        return False
+    if is_reference_link(text, href):
+        return False
+    return True
 
 
 def is_reference_link(text, url):
@@ -290,6 +314,174 @@ def save_page_debug(page, output_folder, notice_id, label="page"):
         print(f"Saved debug screenshot: {screenshot_path}")
     except Exception as error:
         print(f"Could not save debug screenshot: {error}")
+
+
+def save_rendered_debug(page, downloads_dir, notice_id, label="rendered"):
+    """Save the live rendered DOM (post-Angular) as HTML + full-page screenshot."""
+    save_page_debug(page, downloads_dir, notice_id, label=label)
+
+
+FILE_LIKE_CONTENT_TYPES = {
+    "application/pdf",
+    "application/zip",
+    "application/octet-stream",
+    "application/msword",
+    "application/vnd",
+    "text/plain",
+    "text/csv",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats",
+}
+
+FILE_LIKE_URL_MARKERS = [
+    "/download",
+    "response-cont",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".zip",
+    ".txt",
+    ".rtf",
+    ".csv",
+]
+
+
+def is_file_like_url(url):
+    lower = safe_text(url).lower().split("?")[0]
+    return any(m in lower for m in FILE_LIKE_URL_MARKERS)
+
+
+def is_file_like_response(response, preferred_filename=""):
+    """Return True if the HTTP response looks like a downloadable file."""
+    try:
+        if not response.ok:
+            return False
+        ct = response.headers.get("content-type", "").lower()
+        disposition = response.headers.get("content-disposition", "").lower()
+        url = safe_text(response.url)
+
+        if "text/html" in ct and "filename=" not in disposition and not is_file_like_url(url):
+            return False  # skip plain HTML pages
+
+        if any(ft in ct for ft in FILE_LIKE_CONTENT_TYPES):
+            return True
+        if "filename=" in disposition:
+            return True
+        if is_file_like_url(url):
+            return True
+        if preferred_filename and has_bid_file_extension(preferred_filename):
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def save_response_body_to_file(body, output_folder, filename, fallback="downloaded_file"):
+    """Save raw bytes to a file in output_folder using existing helpers."""
+    if not body:
+        return ""
+    fname = clean_filename(filename or fallback, fallback=fallback)
+    if is_bad_download_name(fname):
+        print(f"  Rejected bad download name: {fname}")
+        return ""
+    target = unique_path(output_folder, fname)
+    try:
+        target.write_bytes(body)
+        print(f"  Saved: {target}")
+        return str(target)
+    except Exception as exc:
+        print(f"  Could not save response body: {exc}")
+        return ""
+
+
+def click_and_capture_file(page, locator, output_folder, preferred_filename="", timeout=30000):
+    """
+    Click a locator and capture the resulting file via whichever mechanism fires:
+      A) Playwright download event (browser download dialog)
+      B) Response body (SAM.gov returns 200 document with Content-Disposition or file URL)
+      C) New-tab URL fetch (link opens in new window)
+
+    Returns (saved_path, mechanism) or ("", "") if nothing was captured.
+    Does not log cookies, tokens, auth headers, or profile data.
+    """
+    # Cache file-like responses as they arrive (read body in-handler)
+    file_captures = []
+
+    def _on_response(resp):
+        try:
+            if not is_file_like_response(resp, preferred_filename):
+                return
+            body = resp.body()
+            if not body:
+                return
+            ct   = resp.headers.get("content-type", "")
+            disp = resp.headers.get("content-disposition", "")
+            fname = (get_filename_from_content_disposition(disp)
+                     or preferred_filename
+                     or filename_from_url_or_text(resp.url, preferred_filename))
+            # Log safe summary — no tokens, no full tokenized URL
+            url_safe = resp.url.split("?")[0][-80:]
+            print(f"  Response captured: ct={ct[:40]}  url=...{url_safe}  fname={fname[:60]}")
+            file_captures.append((body, fname))
+        except Exception:
+            pass
+
+    pre_url = page.url
+    page.on("response", _on_response)
+
+    try:
+        # Approach A: Playwright download event
+        try:
+            with page.expect_download(timeout=min(timeout, 15000)) as dl_info:
+                locator.scroll_into_view_if_needed(timeout=5000)
+                locator.click(timeout=7000)
+            dl = dl_info.value
+            page.remove_listener("response", _on_response)
+            saved = save_download(dl, output_folder, preferred_filename=preferred_filename)
+            if saved:
+                print(f"  Captured via download event: {Path(saved).name}")
+                return saved, "download_event"
+        except PlaywrightTimeoutError:
+            pass  # no download event — fall through to response/navigation checks
+        except Exception as exc:
+            print(f"  Download event error: {exc}")
+
+        # Give the response handler time to fire
+        page.wait_for_timeout(2000)
+
+        # Approach B: cached response body
+        if file_captures:
+            body, fname = file_captures[-1]
+            saved = save_response_body_to_file(body, output_folder, fname, preferred_filename)
+            if saved:
+                return saved, "response_body"
+
+        # Approach C: check if page navigated to a file-like URL
+        post_url = page.url
+        if post_url != pre_url and is_file_like_url(post_url):
+            print(f"  Page navigated to file URL — fetching via context.request...")
+            try:
+                resp = page.context.request.get(post_url, timeout=60000)
+                if resp.ok:
+                    disp  = resp.headers.get("content-disposition", "")
+                    fname = (get_filename_from_content_disposition(disp)
+                             or preferred_filename
+                             or filename_from_url_or_text(post_url, preferred_filename))
+                    saved = save_response_body_to_file(resp.body(), output_folder, fname, preferred_filename)
+                    if saved:
+                        return saved, "navigation_url"
+            except Exception as exc:
+                print(f"  Navigation URL fetch failed: {exc}")
+
+        return "", ""
+
+    finally:
+        try:
+            page.remove_listener("response", _on_response)
+        except Exception:
+            pass
 
 
 def open_browser_context(playwright, auth_state, headless=True, profile_dir=""):
@@ -826,6 +1018,204 @@ def open_piee_and_download(context, page, piee_url, notice_id, output_folder, do
     return downloaded_paths
 
 
+# ── Direct SAM workspace/opportunity attachment download ──────────────────────
+
+def collect_sam_direct_attachment_candidates(page):
+    """
+    Collects attachment candidates directly from a SAM.gov workspace/opportunity page.
+    Used when the page shows inline attachments (no PIEE redirect).
+    Kinds returned: 'download_all', 'attachment_file'.
+    """
+    candidates = []
+    current_url = page.url
+
+    # Download All button / link (any element whose text contains "download all")
+    for loc in [
+        page.locator("button").filter(has_text=re.compile(r"download all", re.I)),
+        page.locator("a").filter(has_text=re.compile(r"download all", re.I)),
+        page.locator("[role='button']").filter(has_text=re.compile(r"download all", re.I)),
+    ]:
+        try:
+            for i in range(min(loc.count(), 3)):
+                el = loc.nth(i)
+                text = safe_text(el.inner_text(timeout=1000))
+                href = normalize_href(el.get_attribute("href") or "", current_url)
+                candidates.append({
+                    "kind": "download_all",
+                    "index": i,
+                    "href": href,
+                    "text": text or "Download All",
+                })
+        except Exception:
+            continue
+
+    # Individual file links via <a> tags
+    anchors = page.locator("a")
+    for i in range(anchors.count()):
+        try:
+            el = anchors.nth(i)
+            text = safe_text(el.inner_text(timeout=1000))
+            href = normalize_href(el.get_attribute("href") or "", current_url)
+            if is_direct_attachment_filename(text, href):
+                candidates.append({
+                    "kind": "attachment_file",
+                    "index": i,
+                    "href": href,
+                    "text": text,
+                })
+        except Exception:
+            continue
+
+    # Individual file buttons (Angular SPAs sometimes render download triggers as <button>)
+    buttons = page.locator("button")
+    for i in range(buttons.count()):
+        try:
+            el = buttons.nth(i)
+            text = safe_text(el.inner_text(timeout=1000))
+            if is_direct_attachment_filename(text):
+                candidates.append({
+                    "kind": "attachment_file",
+                    "index": i,
+                    "href": "",
+                    "text": text,
+                })
+        except Exception:
+            continue
+
+    return dedupe_candidates(candidates)
+
+
+def debug_log_page_attachments(page, notice_id):
+    """Log page attachment-detection state. Never logs cookies, tokens, or profile data."""
+    try:
+        lower = page.content().lower()
+        print(f"  URL          : {page.url}")
+        try:
+            print(f"  Title        : {page.title()}")
+        except Exception:
+            pass
+        print(f"  'attachments': {'yes' if 'attachments' in lower else 'no'}")
+        print(f"  'download all': {'yes' if 'download all' in lower else 'no'}")
+        print(f"  'request access': {'yes' if 'request access' in lower else 'no'}")
+        try:
+            a_n = page.locator("a").count()
+            b_n = page.locator("button").count()
+            print(f"  Anchors: {a_n}  Buttons: {b_n}")
+        except Exception:
+            pass
+        try:
+            anchors = page.locator("a")
+            sample = []
+            for i in range(min(anchors.count(), 40)):
+                try:
+                    t = safe_text(anchors.nth(i).inner_text(timeout=300))
+                    if t:
+                        sample.append(t[:80])
+                except Exception:
+                    continue
+            if sample:
+                print(f"  Anchor texts : {sample[:20]}")
+        except Exception:
+            pass
+    except Exception as exc:
+        print(f"  (debug_log_page_attachments error: {exc})")
+
+
+def wait_for_attachments_section(page, timeout=30000):
+    """Wait for the SAM.gov Attachments section to appear (Angular SPA renders async)."""
+    targets = ["Attachments/Links", "Attachments", "Download All", "Request Access"]
+    for target in targets:
+        try:
+            page.get_by_text(target, exact=False).first.wait_for(
+                state="visible", timeout=timeout
+            )
+            print(f"Attachments section visible (found: '{target}').")
+            return True
+        except Exception:
+            continue
+    print("Warning: Attachments section not detected within timeout; proceeding.")
+    return False
+
+
+def click_download_all_sam(page, output_folder):
+    """Try every reasonable selector for a SAM.gov 'Download All' button.
+    Uses click_and_capture_file to handle both download events and document responses."""
+    print("Trying SAM 'Download All' button...")
+    selectors = [
+        page.get_by_role("button", name=re.compile(r"download all", re.I)),
+        page.locator("button").filter(has_text=re.compile(r"download all", re.I)),
+        page.locator("a").filter(has_text=re.compile(r"download all", re.I)),
+        page.locator("[role='button']").filter(has_text=re.compile(r"download all", re.I)),
+    ]
+    for loc in selectors:
+        try:
+            el = loc.first
+            if el.count() <= 0:
+                continue
+            saved, mechanism = click_and_capture_file(
+                page, el, output_folder,
+                preferred_filename="solicitation_attachments.zip",
+                timeout=30000,
+            )
+            if saved:
+                print(f"Download All captured ({mechanism}): {Path(saved).name}")
+                return [saved]
+        except Exception as exc:
+            print(f"Download All selector error: {exc}")
+            continue
+    print("Download All: no file captured.")
+    return []
+
+
+def click_direct_attachment_files(page, candidates, output_folder):
+    """Click individual attachment file links on a SAM.gov workspace page.
+    Handles both Playwright download events and document responses."""
+    downloaded = []
+    file_candidates = [c for c in candidates if c.get("kind") == "attachment_file"]
+    print(f"Trying {len(file_candidates)} individual attachment link(s)...")
+    for item in file_candidates:
+        text = safe_text(item.get("text"))
+        href  = item.get("href", "")
+        print(f"  Candidate: {text[:80]}")
+
+        # Build a locator for this specific element
+        locators = [
+            page.get_by_text(text, exact=True).first,
+            page.locator("a", has_text=text).first,
+            page.locator("button", has_text=text).first,
+        ]
+        saved_path = ""
+        for loc in locators:
+            try:
+                if loc.count() <= 0:
+                    continue
+                saved, mechanism = click_and_capture_file(
+                    page, loc, output_folder,
+                    preferred_filename=text,
+                    timeout=25000,
+                )
+                if saved:
+                    downloaded.append(saved)
+                    print(f"    Saved ({mechanism}): {Path(saved).name}")
+                    saved_path = saved
+                    break
+            except Exception as exc:
+                print(f"    Locator attempt error: {exc}")
+                continue
+
+        # Final fallback: direct HTTP request via authenticated context
+        if not saved_path and href and not href.startswith("javascript:"):
+            saved = request_direct_file(
+                context=page.context,
+                url=href,
+                output_folder=output_folder,
+                text=text,
+            )
+            if saved:
+                downloaded.append(saved)
+    return downloaded
+
+
 def download_for_notice(
     auth_state,
     notice_id,
@@ -834,7 +1224,22 @@ def download_for_notice(
     headless=True,
     debug=True,
     profile_dir="",
+    skip_session_check=False,
+    _meta=None,
 ):
+    """
+    Download solicitation documents for a single notice.
+
+    _meta (optional dict) is populated with:
+      attachment_ui_found   – True if any Attachments section / Download All was detected
+      download_all_found    – True if a "Download All" button was found
+      direct_candidates     – count of direct attachment link candidates
+    This lets callers distinguish "no link found" from "UI found but download failed".
+    """
+    if _meta is None:
+        _meta = {}
+    _meta.update(attachment_ui_found=False, download_all_found=False, direct_candidates=0)
+
     notice_folder = Path(downloads_dir) / make_safe_folder_name(notice_id)
     ensure_folder(notice_folder)
 
@@ -864,11 +1269,17 @@ def download_for_notice(
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
             wait_for_page_to_settle(page, label="SAM page")
-            if page_looks_logged_out(page):
+            if not skip_session_check and page_looks_logged_out(page):
                 raise RuntimeError(
                     "SAM.gov session is not logged in. Open SAM.gov Login in noVNC, "
-                    "complete login/MFA, then retry document download."
+                    "complete login/MFA, then retry document download. "
+                    "(Session checker is advisory — if you can see SAM.gov is logged in, "
+                    "use the manual login override.)"
                 )
+
+            # Save debug artifacts immediately after page settles (always, not just on failure)
+            if debug:
+                save_page_debug(page, downloads_dir, notice_id, label="sam")
 
             print("SAM.gov page loaded. Looking for PIEE/attachment candidates...")
 
@@ -876,9 +1287,6 @@ def download_for_notice(
 
             print("SAM.gov candidates:")
             print_candidates(sam_candidates, max_items=80)
-
-            if debug:
-                save_page_debug(page, downloads_dir, notice_id, label="sam")
 
             piee_links = [
                 item for item in sam_candidates
@@ -899,6 +1307,58 @@ def download_for_notice(
                 )
                 downloaded_paths.extend(piee_downloads)
 
+            # ── Direct SAM workspace/opportunity attachment strategy ───────────
+            # Triggered when no PIEE redirect was found (workspace/contract/opp pages
+            # serve attachments directly) or when PIEE produced no files.
+            if not downloaded_paths:
+                if not piee_links:
+                    print("No PIEE link found — trying direct SAM attachment detection...")
+                else:
+                    print("PIEE produced no files — trying direct SAM attachment strategy...")
+
+                # Step 1: wait for Angular to finish rendering the Attachments section
+                wait_for_attachments_section(page, timeout=30000)
+
+                # Step 2: capture rendered DOM (after Angular — the useful debug artifact)
+                if debug:
+                    save_rendered_debug(page, downloads_dir, notice_id, label="sam_rendered")
+
+                # Step 3: log safe page state for diagnostics
+                print("--- Page state for attachment detection ---")
+                debug_log_page_attachments(page, notice_id)
+
+                # Step 4: collect candidates from rendered DOM
+                direct_candidates = collect_sam_direct_attachment_candidates(page)
+                print("Direct SAM attachment candidates:")
+                print_candidates(direct_candidates, max_items=40)
+
+                _meta["attachment_ui_found"]  = len(direct_candidates) > 0
+                _meta["download_all_found"]   = any(c.get("kind") == "download_all" for c in direct_candidates)
+                _meta["direct_candidates"]    = len(direct_candidates)
+
+                if direct_candidates:
+                    # Strategy A — Download All button (handles download event + doc response)
+                    if _meta["download_all_found"]:
+                        downloaded_paths.extend(
+                            click_download_all_sam(page, notice_folder)
+                        )
+
+                    # Strategy B — individual attachment file links
+                    if not downloaded_paths:
+                        downloaded_paths.extend(
+                            click_direct_attachment_files(page, direct_candidates, notice_folder)
+                        )
+
+                    # Strategy C — direct HTTP requests for any anchor href
+                    if not downloaded_paths:
+                        downloaded_paths.extend(
+                            request_candidate_files(context, direct_candidates, notice_folder)
+                        )
+
+                # Step 7: post-attempt debug (regardless of whether candidates were found)
+                if debug:
+                    save_rendered_debug(page, downloads_dir, notice_id, label="sam_post_dl")
+
         finally:
             context.close()
             if browser:
@@ -914,8 +1374,10 @@ def download_for_notice(
             print(f"- {path}")
     else:
         print("No solicitation files were downloaded automatically.")
-        print("Debug HTML/screenshots were saved if --debug is enabled.")
-        print("Next step may require PIEE selector tuning.")
+        print(f"  attachment_ui_found={_meta.get('attachment_ui_found')}  "
+              f"download_all_found={_meta.get('download_all_found')}  "
+              f"direct_candidates={_meta.get('direct_candidates')}")
+        print("  Debug HTML/screenshots saved to downloads/_debug/")
 
     print("")
 
