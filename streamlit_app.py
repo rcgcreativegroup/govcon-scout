@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -24,7 +25,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
-STATE_JSON      = ROOT / "data" / "opportunity_state.json"
+STATE_CSV       = ROOT / "data" / "opportunity_state.csv"
 BACKUP_DIR      = ROOT / "data" / "backups"
 DOWNLOADS_DIR   = ROOT / "downloads"
 REPORTS_DIR     = ROOT / "reports"
@@ -120,35 +121,35 @@ def is_stale_running(status: dict) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def load_state() -> list[dict]:
-    if not STATE_JSON.exists():
+    if not STATE_CSV.exists():
         return []
-    try:
-        return json.loads(STATE_JSON.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    with STATE_CSV.open("r", encoding="utf-8", newline="") as f:
+        return list(csv_module.DictReader(f))
 
 
 def save_state_with_backup(notice_id: str, updates: dict) -> str:
-    rows = load_state()
-    if not rows and not STATE_JSON.exists():
-        # Check for legacy CSV to migrate
-        legacy_csv = STATE_JSON.with_suffix(".csv")
-        if legacy_csv.exists():
-             with legacy_csv.open("r", encoding="utf-8") as f:
-                 rows = list(csv_module.DictReader(f))
-
+    if not STATE_CSV.exists():
+        raise FileNotFoundError(f"State CSV not found: {STATE_CSV}")
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = BACKUP_DIR / f"opportunity_state_before_update_{stamp}.json"
-    if STATE_JSON.exists():
-        shutil.copy2(STATE_JSON, backup_path)
-
+    backup_path = BACKUP_DIR / f"opportunity_state_before_stage_update_{stamp}.csv"
+    shutil.copy2(STATE_CSV, backup_path)
+    with STATE_CSV.open("r", encoding="utf-8", newline="") as f:
+        reader = csv_module.DictReader(f)
+        fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
     for row in rows:
         if row.get("notice_id") == notice_id:
             row.update(updates)
             row["last_updated"] = _now_iso()
+            for field in updates:
+                if field not in fieldnames:
+                    fieldnames.append(field)
             break
-    STATE_JSON.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    with STATE_CSV.open("w", encoding="utf-8", newline="") as f:
+        writer = csv_module.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
     return str(backup_path)
 
 
@@ -607,24 +608,71 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-  [data-testid="stAppViewContainer"] { background:#0d0d1a; }
-  [data-testid="stSidebar"]          { background:#111122; }
-  h1,h2,h3 { color:#c8c8ff; }
-  .stTabs [data-baseweb="tab-list"]  { background:#111122; border-radius:6px; }
-  .stTabs [data-baseweb="tab"]       { color:#8888aa; }
-  .stTabs [aria-selected="true"]     { color:#00ff88 !important; }
-  .stButton>button {
-    background:#1a2a1a; color:#00cc66; border:1px solid #00cc66;
-    border-radius:4px; font-size:13px;
-  }
-  .stButton>button:hover { background:#00cc66; color:#000; }
-  .stTextInput>div>input,.stSelectbox>div>div {
-    background:#1a1a2e; color:#e0e0ff; border-color:#333366;
-  }
-  .stDataFrame       { border:1px solid #333366; border-radius:4px; }
+  /* ── Backgrounds ─────────────────────────────────────────── */
+  [data-testid="stAppViewContainer"]  { background: #0d0d1a; }
+  [data-testid="stSidebar"]           { background: #111122; }
+  [data-testid="stMain"]              { background: #0d0d1a; }
+
+  /* ── Global text ─────────────────────────────────────────── */
+  html, body, [class*="css"]          { color: #d0d0ee; }
+  p, li, span, label, div            { color: #d0d0ee; }
+  h1, h2, h3, h4                     { color: #e8e8ff; font-weight: 600; }
+
+  /* ── Metrics ─────────────────────────────────────────────── */
   div[data-testid="metric-container"] {
-    background:#111130; border:1px solid #222255; border-radius:6px; padding:8px;
+    background: #161630; border: 1px solid #2a2a55;
+    border-radius: 8px; padding: 12px 16px;
   }
+  [data-testid="stMetricLabel"]       { color: #9090bb !important; font-size: 13px; }
+  [data-testid="stMetricValue"]       { color: #ffffff !important; font-size: 2rem; font-weight: 700; }
+
+  /* ── Tabs ─────────────────────────────────────────────────── */
+  .stTabs [data-baseweb="tab-list"]   { background: #111122; border-radius: 6px; gap: 4px; }
+  .stTabs [data-baseweb="tab"]        { color: #8888bb; font-size: 14px; padding: 8px 16px; }
+  .stTabs [data-baseweb="tab"]:hover  { color: #ccccff; background: #1a1a33; border-radius: 4px; }
+  .stTabs [aria-selected="true"]      { color: #00ff88 !important; border-bottom: 2px solid #00ff88 !important; }
+
+  /* ── Buttons ─────────────────────────────────────────────── */
+  .stButton > button {
+    background: #1a2a1a; color: #00cc66; border: 1px solid #00cc66;
+    border-radius: 4px; font-size: 13px; font-weight: 500;
+  }
+  .stButton > button:hover { background: #00cc66; color: #000; }
+
+  /* ── Inputs ──────────────────────────────────────────────── */
+  .stTextInput > div > input          { background: #1a1a2e; color: #e0e0ff; border-color: #333366; }
+  .stSelectbox > div > div            { background: #1a1a2e; color: #e0e0ff; border-color: #333366; }
+  .stMultiSelect > div > div          { background: #1a1a2e; color: #e0e0ff; border-color: #333366; }
+  .stNumberInput > div > div > input  { background: #1a1a2e; color: #e0e0ff; border-color: #333366; }
+  [data-baseweb="select"] *           { color: #e0e0ff !important; }
+  [data-baseweb="select"] [role="option"] { background: #1e1e3a; }
+  [data-baseweb="select"] [aria-selected="true"] { background: #2a2a55; }
+
+  /* ── Captions / small text ───────────────────────────────── */
+  .stCaption, [data-testid="stCaptionContainer"] { color: #7777aa !important; }
+  small, .small                       { color: #8888bb; }
+
+  /* ── Expanders ───────────────────────────────────────────── */
+  [data-testid="stExpander"] summary  { color: #aaaacc; font-size: 14px; }
+  [data-testid="stExpander"]          { border: 1px solid #222244; border-radius: 6px; }
+
+  /* ── Info / success / error / warning boxes ──────────────── */
+  [data-testid="stAlertContainer"]    { border-radius: 6px; }
+
+  /* ── Dataframe ───────────────────────────────────────────── */
+  .stDataFrame                        { border: 1px solid #2a2a55; border-radius: 6px; }
+
+  /* ── Divider ─────────────────────────────────────────────── */
+  hr                                  { border-color: #222244; }
+
+  /* ── Sidebar text ────────────────────────────────────────── */
+  [data-testid="stSidebar"] p,
+  [data-testid="stSidebar"] span,
+  [data-testid="stSidebar"] label     { color: #c0c0dd; }
+  [data-testid="stSidebar"] h1,
+  [data-testid="stSidebar"] h2,
+  [data-testid="stSidebar"] h3,
+  [data-testid="stSidebar"] h4        { color: #e0e0ff; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -667,42 +715,136 @@ with st.sidebar:
     st.divider()
     st.markdown("#### noVNC Controls")
     st.caption(
-        "Keep the noVNC tab open at all times. The automation may open or "
-        "close a Chromium/SAM.gov window inside noVNC. If the noVNC viewer "
-        "disconnects, reopen forwarded port 6080 and reconnect — do not reset "
-        "noVNC unless the check fails."
+        "Keep the noVNC tab open. If the noVNC viewer disconnects, reopen "
+        "forwarded port 6080 and reconnect. Do not reset noVNC unless the check fails."
     )
 
+    # 1. Start System
+    if st.button(
+        "🚀 Start System", key="btn_system_start",
+        help="Starts Xvfb, x11vnc, websockify. Sets DISPLAY=:99. Verifies ports.",
+    ):
+        with st.spinner("Starting noVNC/X11 services…"):
+            rc1, out1, err1 = run_cmd(["bash", "scripts/novnc_reset.sh"], timeout=60)
+            os.environ["DISPLAY"] = ":99"
+            time.sleep(5)
+            rc2, out2, err2 = run_cmd(["bash", "scripts/novnc_check.sh"], timeout=30)
+
+            reset_out = (out1 + err1).strip() or "(no output)"
+            check_out = (out2 + err2).strip() or "(no output)"
+
+            if rc1 != 0:
+                combined = "\n".join([
+                    f"=== novnc_reset.sh (FAILED rc={rc1}) ===",
+                    reset_out,
+                ])
+            elif rc2 != 0:
+                combined = "\n\n".join([
+                    "=== novnc_reset.sh (ok) ===",
+                    reset_out,
+                    "=== novnc_check.sh (FAILED — wait a few seconds, then click Check noVNC Status) ===",
+                    check_out,
+                ])
+            else:
+                combined = "\n\n".join([
+                    "=== novnc_reset.sh ===",
+                    reset_out,
+                    "=== novnc_check.sh ===",
+                    check_out,
+                ])
+
+            _set("cmd_output", combined)
+            _set("cmd_label", "System Start Result")
+            _set("display_status", ":99")
+            st.rerun()
+
+    # 2. Check noVNC Status
     if st.button("Check noVNC Status", key="btn_novnc_check"):
-        rc, out, err = run_cmd(["bash", "scripts/novnc_check.sh"], timeout=20)
+        rc, out, err = run_cmd(["bash", "scripts/novnc_check.sh"], timeout=30)
         _set("cmd_output", (out + err).strip() or "(no output)")
         _set("cmd_label", "noVNC Status")
 
-    if st.button("Reset noVNC (instructions)", key="btn_novnc_reset"):
+    # 3. Reset noVNC instructions (safe — does not run the script)
+    if st.button("Reset noVNC Instructions", key="btn_novnc_instructions"):
         _set("cmd_output", (
             "Run manually in terminal (do not run from Streamlit —\n"
             "it would block the server):\n\n"
             "  bash scripts/novnc_reset.sh\n"
             "  export DISPLAY=:99\n\n"
-            "Then reload this page."
+            "Then click 🚀 Start System or Check noVNC Status."
         ))
-        _set("cmd_label", "noVNC Reset Instructions")
+        _set("cmd_label", "Reset noVNC Instructions")
+
+    # 4. Force Run Reset Script (runs inline — use only if Start System fails)
+    if st.button(
+        "Force Run Reset Script", key="btn_novnc_force_reset",
+        help="Runs novnc_reset.sh directly. Use if Start System hangs.",
+    ):
+        with st.spinner("Running reset script…"):
+            rc, out, err = run_cmd(["bash", "scripts/novnc_reset.sh"], timeout=60)
+            _set("cmd_output", (out + err).strip() or "Reset script finished.")
+            _set("cmd_label", "Reset Log")
+            st.rerun()
 
     st.divider()
     st.markdown("#### SAM.gov Login")
     st.caption(
-        "Close **only** the Chromium/SAM.gov window inside noVNC when done. "
-        "Do not close the noVNC tab itself."
+        "Keep the noVNC tab open. SAM.gov opens inside noVNC in a Chromium window "
+        "sized to fit the viewport. If the browser title bar is cut off or you cannot "
+        "close it, click **Close SAM Login Browser / Release Profile** below. "
+        "Close only the Chromium/SAM.gov window — do not close the noVNC tab. "
+        "Do not reset noVNC unless the noVNC check fails."
     )
 
     if st.button("Open SAM.gov Login", key="btn_sam_open"):
         rc, out, err = run_cmd(
             ["bash", "scripts/open_sam_login_browser.sh", str(PROFILE_DIR)],
-            timeout=8,
+            timeout=10,
         )
         msg = out.strip() or (f"Error: {err.strip()}" if err.strip() else "Browser launch attempted.")
         _set("cmd_output", msg)
         _set("cmd_label", "Open SAM Login")
+
+    if st.button(
+        "Close SAM Login Browser / Release Profile",
+        key="btn_release_profile",
+        help="Kills only the Chromium process using .browser/sam-profile. Does not touch noVNC.",
+    ):
+        import signal
+        abs_profile = str(PROFILE_DIR.resolve())
+        # Match any process whose cmdline includes the profile path
+        # (covers both the Python helper and a raw playwright/chromium launch)
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", abs_profile],
+                capture_output=True, text=True,
+            )
+            pids = [int(p) for p in result.stdout.split() if p.strip().isdigit()]
+        except Exception:
+            pids = []
+
+        killed = []
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                killed.append(pid)
+            except ProcessLookupError:
+                pass
+        if killed:
+            time.sleep(2)
+            for pid in killed:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            msg = (
+                f"SAM login browser closed ({len(killed)} process(es) terminated). "
+                "noVNC remains running. You can now continue downloads."
+            )
+        else:
+            msg = "No SAM login browser process found. The profile may already be released."
+        _set("cmd_output", msg)
+        _set("cmd_label", "Release SAM Profile")
 
     if st.button("Check SAM Session", key="btn_sam_check"):
         with st.spinner("Checking SAM session (headless browser)…"):
@@ -739,6 +881,22 @@ with st.sidebar:
     st.caption("noVNC: port 6080 → vnc.html")
     st.caption(".browser/sam-profile is local-only")
     st.caption("auth.json is fallback only")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Global style — hide Streamlit's default deploy toolbar
+# ═══════════════════════════════════════════════════════════════════════════
+
+st.markdown("""
+<style>
+#MainMenu          {visibility: hidden;}
+header             {visibility: hidden; height: 0;}
+footer             {visibility: hidden;}
+[data-testid="stToolbar"]        {display: none;}
+[data-testid="stDecoration"]     {display: none;}
+[data-testid="stStatusWidget"]   {display: none;}
+</style>
+""", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -817,7 +975,7 @@ with tab_queue:
         for col in ["title","recommended_next_action","document_status"]:
             if col in df.columns:
                 df[col] = df[col].str.slice(0, 80)
-        st.dataframe(df, use_container_width=True, hide_index=True, height=320)
+        st.dataframe(df, width="stretch", hide_index=True, height=320)
 
         id_labels = [f"{r['notice_id']} — {(r.get('title') or '')[:60]}" for r in filtered]
         selected_label = st.selectbox("Select opportunity", ["(none)"] + id_labels, key="queue_select")
@@ -1150,7 +1308,7 @@ with tab_docs:
             c for c in ["notice_id","status","attachment_count","error"]
             if c in results_src[0]
         ]]
-        st.dataframe(res_df, use_container_width=True, hide_index=True)
+        st.dataframe(res_df, width="stretch", hide_index=True)
 
     # ── Debug artifacts note ──────────────────────────────────────────────
     only_debug = (display_status in {"completed","failed","idle"} and not results_src
