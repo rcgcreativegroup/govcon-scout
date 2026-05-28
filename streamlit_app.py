@@ -41,6 +41,7 @@ _batch: dict = {
     "completed": 0, "results": [], "log_lines": [], "report_path": "",
     "mode": "", "notice_id": "",
     "auto_analyze": False, "session_expired": False,
+    "skip_session_check": False,
 }
 _batch_lock = threading.Lock()
 
@@ -378,7 +379,22 @@ def get_workspace_history(notice_id: str) -> list:
 # Background batch thread
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: bool = False, auto_analyze: bool = False):
+def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: bool = False, auto_analyze: bool = False, skip_session_check: bool = False):
+    # Pre-flight: if the login browser is open (profile locked), refuse to start.
+    # Chromium cannot open the same profile twice; the download would fail immediately.
+    if not skip_session_check:
+        try:
+            from batch_download_docs import is_profile_filesystem_locked
+            locked = is_profile_filesystem_locked(str(PROFILE_DIR))
+        except Exception:
+            locked = (PROFILE_DIR / "SingletonLock").exists()
+        if locked:
+            return False, (
+                "Login browser is open (profile locked). "
+                "Complete Login.gov/MFA in noVNC, then click 'Release Profile' to save your session. "
+                "After releasing, retry the download — or check 'bypass session check' to skip this guard."
+            )
+
     with _batch_lock:
         if _batch["running"]:
             return False, "A download is already running."
@@ -386,6 +402,7 @@ def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: 
             running=True, done=False, error="", results=[], total=0,
             completed=0, log_lines=[], report_path="", mode=mode, notice_id=notice_id,
             auto_analyze=auto_analyze, session_expired=False,
+            skip_session_check=skip_session_check,
         )
 
     stamp = _now_iso()
@@ -437,7 +454,7 @@ def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: 
         failed     = sum(1 for r in results if (r.get("status") or "").startswith("failed"))
         
         # Detect session expiration from individual result statuses or overall thread error
-        expired = any((r.get("status") == "failed_login") for r in results)
+        expired = any((r.get("status") == "failed_login_or_live_infra") for r in results)
         if error and any(x in error.lower() for x in ["login", "session", "auth", "unauthorized"]):
             expired = True
 
@@ -486,6 +503,7 @@ def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: 
             _log(f"AI Review exception for {nid}: {e}")
 
     def _run_queue():
+        skip_session_check = _batch.get("skip_session_check", False)
         try:
             from batch_download_docs import (
                 run_batch, write_batch_report, BATCH_STAGES,
@@ -502,7 +520,7 @@ def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: 
                 _log(f"[{step}/{total}] {last.get('notice_id','?')} — {last.get('status','?')}")
                 
                 # Real-time session check: if we see a login failure, flag it immediately
-                if last.get("status") == "failed_login":
+                if last.get("status") == "failed_login_or_live_infra":
                     with _batch_lock: _batch["session_expired"] = True
                     write_batch_status({"session_expired": True})
                 
@@ -515,7 +533,7 @@ def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: 
                         _run_auto_pipeline(last.get("notice_id"))
 
 
-            results, error = run_batch(limit=limit, force=force, live=True, progress_callback=cb)
+            results, error = run_batch(limit=limit, force=force, live=True, progress_callback=cb, skip_session_check=skip_session_check)
 
             report_path = ""
             if results:
@@ -534,6 +552,7 @@ def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: 
             _finish([], error=str(exc)[:400])
 
     def _run_single():
+        skip_session_check = _batch.get("skip_session_check", False)
         try:
             from batch_download_docs import (
                 process_candidate, DEFAULT_PROFILE_DIR, DEFAULT_AUTH_STATE,
@@ -570,6 +589,7 @@ def _start_batch_thread(mode: str, notice_id: str = "", limit: int = 10, force: 
                 downloads_dir=str(DEFAULT_DOWNLOADS_DIR),
                 headless=False,
                 profile_dir=prof if profile_ready(prof) else "",
+                skip_session_check=skip_session_check,
             )
             full = {**result, "notice_id": notice_id, "title": (row.get("title") or "")[:80]}
             _log(f"Result: {result.get('status','?')}  attachments={result.get('attachment_count',0)}")
@@ -863,16 +883,45 @@ with st.sidebar:
         _set("cmd_output", msg)
         _set("cmd_label", "Release SAM Profile")
 
+    # Real-time profile lock status (filesystem check — no Playwright needed)
+    try:
+        from batch_download_docs import is_profile_filesystem_locked
+        _prof_locked = is_profile_filesystem_locked(str(PROFILE_DIR))
+    except Exception:
+        _prof_locked = (PROFILE_DIR / "SingletonLock").exists()
+
+    if _prof_locked:
+        st.warning(
+            "Login browser is open (profile locked). "
+            "After completing Login.gov/MFA, click **Release Profile** above to save your session. "
+            "Then click Check SAM Session."
+        )
+    elif PROFILE_DIR.exists():
+        st.caption("Profile unlocked — ready to check/download.")
+
     if st.button("Check SAM Session", key="btn_sam_check"):
-        with st.spinner("Checking SAM session (headless browser)…"):
-            rc, out, err = run_cmd(
-                ["python", "scripts/check_sam_profile_session.py",
-                 "--profile-dir", str(PROFILE_DIR)],
-                timeout=90,
-            )
-        parsed = parse_sam_session_output(out, err, rc)
-        _set("sam_check_result", parsed)
-        _set("cmd_output", None)  # suppress generic output box
+        if _prof_locked:
+            _set("sam_check_result", {
+                "ok": False,
+                "code_label": "profile_locked",
+                "message": (
+                    "Login browser is still open. Complete Login.gov/MFA in noVNC, "
+                    "then click 'Release Profile' to save your session. "
+                    "After releasing, click Check SAM Session again."
+                ),
+                "debug_html": "", "debug_png": "", "raw": "",
+            })
+            _set("cmd_output", None)
+        else:
+            with st.spinner("Checking SAM session (browser check via DISPLAY=:99)…"):
+                rc, out, err = run_cmd(
+                    ["python", "scripts/check_sam_profile_session.py",
+                     "--profile-dir", str(PROFILE_DIR)],
+                    timeout=90,
+                )
+            parsed = parse_sam_session_output(out, err, rc)
+            _set("sam_check_result", parsed)
+            _set("cmd_output", None)
 
     if _s("sam_check_result") is not None:
         r = _s("sam_check_result")
@@ -1176,6 +1225,20 @@ with tab_docs:
     if not PROFILE_DIR.exists() and not AUTH_JSON.exists():
         st.warning("No SAM.gov session found. Open SAM.gov Login in the sidebar first.")
 
+    # Profile lock banner — shown whenever the login browser is still open
+    try:
+        from batch_download_docs import is_profile_filesystem_locked as _is_locked
+        _dl_prof_locked = _is_locked(str(PROFILE_DIR))
+    except Exception:
+        _dl_prof_locked = (PROFILE_DIR / "SingletonLock").exists()
+    if _dl_prof_locked:
+        st.warning(
+            "**Login browser is open (profile locked).** "
+            "Finish Login.gov/MFA in noVNC, then click **Release Profile** in the sidebar. "
+            "Downloads will fail while the login browser holds the profile. "
+            "Use the bypass checkbox below only if you want to attempt anyway."
+        )
+
     # ── SAM login gate reminder ───────────────────────────────────────────
     with st.expander("SAM.gov Login Instructions", expanded=False):
         st.markdown(
@@ -1206,12 +1269,18 @@ with tab_docs:
             st.markdown(f"Selected: **{nid}**")
             force_single = st.checkbox("Force re-download", key="force_single")
             auto_analyze_single = st.checkbox("Auto-Analyze (Extract + AI)", value=True, key="auto_single")
+            bypass_single = st.checkbox(
+                "I visually confirm SAM.gov is logged in — bypass session check",
+                key="bypass_session_single",
+            )
+            if bypass_single:
+                st.warning("Manual login override: system will attempt download and report actual errors.")
 
             if currently_running and not stale:
                 st.warning("A download is already running — see Batch Progress below.")
             else:
                 if st.button("Download Docs for Selected", key="btn_dl_single"):
-                    ok, msg = _start_batch_thread("single", notice_id=nid, force=force_single, auto_analyze=auto_analyze_single)
+                    ok, msg = _start_batch_thread("single", notice_id=nid, force=force_single, auto_analyze=auto_analyze_single, skip_session_check=bypass_single)
                     _set("batch_started", True)
                     if ok:
                         st.success(msg)
@@ -1226,6 +1295,12 @@ with tab_docs:
         limit_val   = st.number_input("Limit", min_value=1, max_value=50, value=5, key="batch_limit")
         force_queue = st.checkbox("Force re-download", key="force_queue")
         auto_analyze_queue = st.checkbox("Auto-Analyze (Extract + AI)", value=True, key="auto_queue")
+        bypass_queue = st.checkbox(
+            "I visually confirm SAM.gov is logged in — bypass session check",
+            key="bypass_session_queue",
+        )
+        if bypass_queue:
+            st.warning("Manual login override: system will attempt download and report actual errors.")
 
         bstatus = read_batch_status()
         bsnap   = snap_batch()
@@ -1236,7 +1311,7 @@ with tab_docs:
             st.warning("A download is already running — see Batch Progress below.")
         else:
             if st.button("Download Docs for Eligible Queue", key="btn_dl_queue"):
-                ok, msg = _start_batch_thread("queue", limit=int(limit_val), force=force_queue, auto_analyze=auto_analyze_queue)
+                ok, msg = _start_batch_thread("queue", limit=int(limit_val), force=force_queue, auto_analyze=auto_analyze_queue, skip_session_check=bypass_queue)
                 _set("batch_started", True)
                 if ok: st.success(msg)
                 else:  st.error(msg)

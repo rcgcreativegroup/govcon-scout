@@ -7,7 +7,7 @@ when available, with auth.json retained as a fallback.
 """
 
 import argparse
-import csv as csv_module
+import json
 import os
 import re
 import subprocess
@@ -22,7 +22,7 @@ DEFAULT_PROFILE_DIR = str(BASE_DIR / ".browser/sam-profile")
 DEFAULT_DOWNLOADS_DIR = str(BASE_DIR / "downloads")
 DEFAULT_EXTRACTS_DIR = str(BASE_DIR / "reports/document_extracts")
 DEFAULT_BATCH_RUNS_DIR = str(BASE_DIR / "reports/batch_runs")
-DEFAULT_STATE_CSV = str(BASE_DIR / "data/opportunity_state.csv")
+DEFAULT_STATE_PATH = str(BASE_DIR / "data/opportunity_state.json")
 NOVNC_CHECK_SCRIPT = str(BASE_DIR / "scripts/novnc_check.sh")
 
 BATCH_STAGES = {"Manual Review", "AI Review", "Development", "Ready to Submit", "Execution"}
@@ -221,6 +221,16 @@ def profile_ready(profile_dir):
     return path.exists() and path.is_dir()
 
 
+def is_profile_filesystem_locked(profile_dir=None):
+    """Pure filesystem check — returns True if Chromium's SingletonLock file exists.
+
+    Chromium writes <user-data-dir>/SingletonLock while it holds the profile open.
+    This check does not launch Playwright and is safe to call from any thread.
+    """
+    lock = Path(profile_dir or DEFAULT_PROFILE_DIR) / "SingletonLock"
+    return lock.exists()
+
+
 def select_candidates(rows, stages, limit, force, downloads_dir, extracts_dir):
     candidates = []
     kept = 0
@@ -274,7 +284,7 @@ def _next_action_for_skip(skip_reason):
     return NEXT_ACTION_SKIP
 
 
-def process_candidate(notice_id, url, auth_state, downloads_dir, headless, profile_dir=None):
+def process_candidate(notice_id, url, auth_state, downloads_dir, headless, profile_dir=None, skip_session_check=False):
     try:
         from sam_browser_downloader import download_for_notice
     except ImportError as err:
@@ -298,6 +308,7 @@ def process_candidate(notice_id, url, auth_state, downloads_dir, headless, profi
             headless=headless,
             debug=True,
             profile_dir=profile_dir or "",
+            skip_session_check=skip_session_check,
         )
     except SystemExit as err:
         code = getattr(err, "code", 1)
@@ -461,8 +472,24 @@ def check_sam_profile_session(profile_dir=None, display=None):
             "debug_png": "",
         }
 
+    # Fast filesystem lock check — avoid launching Playwright against a locked profile.
+    # Chromium holds SingletonLock while a persistent context is open.
+    lock_file = prof_path / "SingletonLock"
+    if lock_file.exists():
+        return {
+            "ok": False,
+            "code": "profile_locked",
+            "message": (
+                "Login browser is open and the profile is locked. "
+                "After completing Login.gov/MFA, click 'Release Profile' in the sidebar "
+                "to save your session to disk. Then click 'Check SAM Session' again."
+            ),
+            "debug_html": "",
+            "debug_png": "",
+        }
+
     resolved_display = display or os.environ.get("DISPLAY", ":99")
-    os.environ.setdefault("DISPLAY", resolved_display)
+    os.environ["DISPLAY"] = resolved_display
 
     try:
         from playwright.sync_api import sync_playwright
@@ -478,10 +505,14 @@ def check_sam_profile_session(profile_dir=None, display=None):
     try:
         with sync_playwright() as pw:
             try:
+                # headless=False: SAM.gov's Angular SPA requires full JS rendering to
+                # emit role-authenticated/role-anonymous markers reliably.
+                # DISPLAY=:99 (Xvfb) provides the display; the browser is briefly
+                # visible in noVNC during the check.
                 context = pw.chromium.launch_persistent_context(
                     user_data_dir=str(prof_path),
-                    headless=True,
-                    args=["--no-sandbox", "--disable-dev-shm-usage"],
+                    headless=False,
+                    args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
                     viewport={"width": 1280, "height": 900},
                 )
             except Exception as lock_err:
@@ -499,7 +530,8 @@ def check_sam_profile_session(profile_dir=None, display=None):
                         "code": "profile_locked",
                         "message": (
                             "SAM browser profile is already open. "
-                            "Close the login browser, then click Continue again."
+                            "Click 'Release Profile' in the sidebar to close the login browser "
+                            "and save your session, then retry."
                         ),
                         "debug_html": "",
                         "debug_png": "",
@@ -673,8 +705,9 @@ def run_batch(
     profile_dir=None,
     downloads_dir=None,
     extracts_dir=None,
-    state_csv=None,
+    state_path=None,
     progress_callback=None,
+    skip_session_check=False,
 ):
     """
     Main batch routine. Returns (results, error_message).
@@ -686,7 +719,7 @@ def run_batch(
     profile_dir = profile_dir or DEFAULT_PROFILE_DIR
     downloads_dir = downloads_dir or DEFAULT_DOWNLOADS_DIR
     extracts_dir = extracts_dir or DEFAULT_EXTRACTS_DIR
-    state_csv = state_csv or DEFAULT_STATE_CSV
+    state_path = state_path or DEFAULT_STATE_PATH
 
     if live:
         ready, msg = live_preflight_check()
@@ -699,13 +732,11 @@ def run_batch(
             "the persistent browser profile, or regenerate auth.json."
         )
 
-    state_path = Path(state_csv)
-    if not state_path.exists():
-        return [], f"State CSV not found: {state_csv}"
+    path = Path(state_path)
+    if not path.exists():
+        return [], f"State JSON not found: {state_path}"
 
-    rows = []
-    with state_path.open("r", encoding="utf-8", newline="") as f:
-        rows = [dict(row) for row in csv_module.DictReader(f)]
+    rows = json.loads(path.read_text(encoding="utf-8"))
 
     candidates = select_candidates(rows, stages, limit, force, downloads_dir, extracts_dir)
     headless = not live
@@ -742,6 +773,7 @@ def run_batch(
             downloads_dir=downloads_dir,
             headless=headless,
             profile_dir=profile_dir if profile_ready(profile_dir) else "",
+            skip_session_check=skip_session_check,
         )
         result = {
             "notice_id": c["notice_id"],
@@ -855,7 +887,7 @@ def parse_args():
     )
     parser.add_argument("--downloads-dir", default=DEFAULT_DOWNLOADS_DIR)
     parser.add_argument("--extracts-dir", default=DEFAULT_EXTRACTS_DIR)
-    parser.add_argument("--state-csv", default=DEFAULT_STATE_CSV)
+    parser.add_argument("--state-path", default=DEFAULT_STATE_PATH)
     return parser.parse_args()
 
 
@@ -882,7 +914,7 @@ def main():
         profile_dir=args.profile_dir,
         downloads_dir=args.downloads_dir,
         extracts_dir=args.extracts_dir,
-        state_csv=args.state_csv,
+        state_path=args.state_path,
         progress_callback=progress,
     )
 
